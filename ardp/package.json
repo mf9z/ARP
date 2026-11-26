@@ -1,0 +1,69 @@
+{
+  "name": "ardp",
+  "productName": "ARDP",
+  "version": "0.1.0",
+  "description": "ARDP - Aesthetic Remote Desktop Protocol. The remote desktop part of ARP.",
+  "author": "rohann",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mf9z/ARP.git",
+    "directory": "ardp"
+  },
+  "main": "src/app/main.js",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "icons": "electron scripts/make-icons.js",
+    "test": "node --test",
+    "selftest": "electron . --selftest",
+    "dist": "electron-builder",
+    "dist:dir": "electron-builder --dir"
+  },
+  "dependencies": {
+    "@nut-tree-fork/libnut": "^4.2.6",
+    "selfsigned": "^5.5.0"
+  },
+  "devDependencies": {
+    "electron": "^45.5.0",
+    "electron-builder": "^26.18.0"
+  },
+  "build": {
+    "appId": "app.ardp.desktop",
+    "productName": "ARDP",
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "node_modules/@nut-tree-fork/**/*"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "icon": "assets/icons/icon-256.png",
+      "target": [
+        "nsis"
+      ]
+    },
+    "mac": {
+      "icon": "assets/icons/icon-512.png",
+      "category": "public.app-category.utilities",
+      "target": [
+        "dmg"
+      ],
+      "extendInfo": {
+        "NSScreenCaptureUsageDescription": "ARDP shares this screen with the computers you allow to connect."
+      }
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
+  "allowScripts": {
+    "electron@45.5.0": true
+  }
+}
