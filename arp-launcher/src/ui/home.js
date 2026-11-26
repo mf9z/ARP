@@ -20,6 +20,7 @@
   $('open-rdp').addEventListener('click', () => api.open('rdp'));
   $('open-vms').addEventListener('click', () => api.open('vms'));
   $('get-qemu').addEventListener('click', () => api.getQemu());
+  $('private-mode').addEventListener('change', async (e) => render(await api.setPrivate(e.target.checked)));
 
   function render(state) {
     document.title = state.product.name;
@@ -27,6 +28,7 @@
     $('product-name').textContent = state.product.name;
     $('product-meaning').textContent = state.product.meaning;
     $('status').textContent = `Version ${state.version}`;
+    $('private-mode').checked = state.privateMode;
 
     const { host, vms } = state;
     $('needs-qemu').hidden = vms.available;

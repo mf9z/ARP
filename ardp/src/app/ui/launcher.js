@@ -63,6 +63,12 @@
 
   const recentFor = (text) => state.client.recent.find((r) => r.address === text.trim());
 
+  // in private mode a saved computer goes by "Saved computer 2". anything typed by hand is dotted out
+  function mask() {
+    address.classList.toggle('masked', !!state.private && !recentFor(address.value));
+    code.classList.toggle('masked', !!state.private);
+  }
+
   function syncCodeHint() {
     const saved = recentFor(address.value);
     code.placeholder = saved && saved.hasCode ? 'Saved - leave empty to use it' : 'XXXX-XXXX-XXXX';
@@ -110,6 +116,7 @@
   }
   function pick(value) {
     address.value = value;
+    mask();
     closeRecent();
     syncCodeHint();
     clearMessage();
@@ -155,6 +162,7 @@
     }
   });
   address.addEventListener('input', () => {
+    mask();
     closeRecent();
     syncCodeHint();
     clearMessage();
@@ -168,6 +176,7 @@
   }
   function clearMessage() {
     $('message').hidden = true;
+    $('message-text').textContent = '';
   }
 
   $('toggle-options').addEventListener('click', () => {
@@ -193,7 +202,7 @@
     closeRecent();
     clearMessage();
     setConnecting(true);
-    setStatus(`Connecting to ${address.value.trim() || 'computer'}…`);
+    setStatus(state.private ? 'Connecting…' : `Connecting to ${address.value.trim() || 'computer'}…`);
     const result = await api.connect({
       address: address.value,
       code: code.value,
@@ -246,6 +255,8 @@
 
   async function pickSource(id) {
     $('chooser').hidden = true;
+    $('chooser-name').textContent = '';
+    chooser.fill([], '');
     $('connect-form').hidden = false;
     if (id) setStatus('Opening…');
     const result = await api.choose(id);
@@ -261,6 +272,7 @@
     $('full-screen').checked = state.client.fullScreen;
     renderRecent();
     if (!address.value && state.client.recent.length) address.value = state.client.recent[0].address;
+    mask();
     syncCodeHint();
   }
 
@@ -271,7 +283,8 @@
     $('host-control').disabled = !host.canControl;
     $('host-ask').checked = host.askFirst;
     $('host-name').textContent = host.name;
-    $('host-address').textContent = host.addresses[0] ? withPort(host.addresses[0], host) : 'No network connection';
+    $('host-address').textContent = !host.addresses[0] ? 'No network connection' : host.hidden ? host.addresses[0] : withPort(host.addresses[0], host);
+    $('about-fingerprint').textContent = host.fingerprint;
     $('copy-address').disabled = !host.addresses[0];
     const others = host.addresses.slice(1, 4);
     $('host-also').hidden = others.length === 0;
@@ -307,7 +320,7 @@
         const li = document.createElement('li');
         const who = document.createElement('span');
         who.className = 'who';
-        who.textContent = `${s.name || 'Unknown'} (${s.address}) - ${s.control ? 'controlling' : 'watching'}`;
+        who.textContent = `${s.name || 'Unknown'}${s.address ? ` (${s.address})` : ''} - ${s.control ? 'controlling' : 'watching'}`;
         const end = document.createElement('button');
         end.type = 'button';
         end.className = 'btn small';
@@ -340,17 +353,17 @@
   });
   $('new-code').addEventListener('click', async () => renderHost(await api.newCode()));
 
-  function copyButton(button, getText) {
+  function copyButton(button, what) {
     button.addEventListener('click', () => {
-      api.copy(getText());
+      api.copyHost(what);
       button.textContent = 'Copied';
       setTimeout(() => {
         button.textContent = 'Copy';
       }, 1200);
     });
   }
-  copyButton($('copy-address'), () => $('host-address').textContent);
-  copyButton($('copy-code'), () => $('host-code').textContent);
+  copyButton($('copy-address'), 'address');
+  copyButton($('copy-code'), 'code');
 
   $('login-row').hidden = !state.packaged;
   $('start-at-login').checked = state.startAtLogin;
@@ -383,11 +396,18 @@
   api.onLocalVms(renderLocalVms);
   renderLocalVms(state.localVms);
 
-  $('about-fingerprint').textContent = state.host.fingerprint;
-
   api.onHost(renderHost);
   api.onState((next) => {
+    const before = state;
     state = next;
+    if (!!before.private !== !!next.private) {
+      // the same computer under its other name, and nothing left over from a moment ago
+      const was = before.client.recent.find((r) => r.address === address.value.trim());
+      const now = was && next.client.recent.find((r) => r.n === was.n);
+      if (was) address.value = now ? now.address : '';
+      clearMessage();
+      if (!$('chooser').hidden) pickSource(null);
+    }
     renderClient();
     renderHost(state.host);
     renderLocalVms(state.localVms);

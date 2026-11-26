@@ -123,6 +123,7 @@
 
   function hideNotice() {
     notice.hidden = true;
+    noticeText.textContent = '';
     canvas.focus();
   }
 
@@ -259,7 +260,7 @@
       li.setAttribute('aria-checked', String(d.id === opened.display));
       li.dataset.action = 'display';
       li.dataset.display = d.id;
-      li.textContent = `Display ${i + 1} - ${d.name}${d.primary ? ' (main)' : ''}`;
+      li.textContent = `Display ${i + 1}${d.name ? ` - ${d.name}` : ''}${d.primary ? ' (main)' : ''}`;
       return li;
     });
     const rule = document.createElement('li');
@@ -414,6 +415,11 @@
     document.title = info.title;
     $('title').textContent = info.title;
     refreshMode();
+  });
+
+  api.onTitle((title) => {
+    document.title = title;
+    $('title').textContent = title;
   });
 
   api.onConfig((next) => {

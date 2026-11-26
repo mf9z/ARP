@@ -498,3 +498,8 @@ body.dialog {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* private mode: what is typed is there, but not readable on screen */
+.field.masked {
+  -webkit-text-security: disc;
+}

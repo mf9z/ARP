@@ -18,7 +18,7 @@ contextBridge.exposeInMainWorld('ardp', {
 
   openVm: (id) => ipcRenderer.invoke('vm:open', id),
 
-  copy: (text) => ipcRenderer.send('app:copy', text),
+  copyHost: (what) => ipcRenderer.send('host:copy', what),
   startAtLogin: (enabled) => ipcRenderer.invoke('app:start-at-login', enabled),
   window: (action) => ipcRenderer.send('window:action', action),
 

@@ -119,6 +119,9 @@ passes so text ends up sharp. The wire format is in
 - View only is enforced on your side, whatever the other computer claims, and
   the clipboard is only shared while you control and the session window is in
   front.
+- In private mode the app does the hiding, not the page: a window is sent
+  "Saved computer 2" or "Hidden" in place of an address, a name or a code,
+  and every other piece of text passes through a scrubber on the way.
 - Each window can only call the parts of the app that belong to it. A window
   showing another computer's picture cannot read the access code or change
   settings.

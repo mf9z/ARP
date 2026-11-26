@@ -30,10 +30,13 @@ function tidy(opened) {
 }
 
 class Session extends EventEmitter {
-  constructor({ target, client, redial, options, local, quiet, icon }) {
+  constructor({ target, client, redial, options, local, quiet, icon, privacy }) {
     super();
     this.target = target;
     this.local = !!local;
+    this.privacy = privacy || { on: () => false, scrub: (text) => text };
+    this._notice = null;
+    this._live = false;
     this.viewOnly = !!options.viewOnly;
     this._asked = false;
     this.address = formatAddress(target);
@@ -74,7 +77,8 @@ class Session extends EventEmitter {
     const ipc = win.webContents.ipc;
     ipc.on('session:ready', (_e, info) => {
       this.codecs = Array.isArray(info && info.codecs) ? info.codecs : [];
-      this.send('session:init', { title: this.title(), status: `Connecting to ${this.address}…`, viewOnly: !!options.viewOnly });
+      this._notice = ['session:status', () => ({ text: this._connecting() })];
+      this.send('session:init', { title: this.title(), status: this._connecting(), viewOnly: !!options.viewOnly });
       this._pushState();
       this._open();
     });
@@ -82,7 +86,10 @@ class Session extends EventEmitter {
       if (this.client && this._control()) this.client.sendInput(event);
     });
     ipc.on('session:ack', (_e, seq) => {
-      if (this.client) this.client.ack(seq);
+      if (!this.client) return;
+      // a frame reached the screen, so the notice is gone
+      this._live = !!this.opened;
+      this.client.ack(seq);
     });
     ipc.on('session:keyframe', () => {
       if (this.client) this.client.requestKeyframe();
@@ -129,10 +136,45 @@ class Session extends EventEmitter {
     win.loadFile(path.join(__dirname, 'ui', 'session.html'));
   }
 
+  // in private mode nothing on screen says which computer this is
+  _hide() {
+    return this.privacy.on();
+  }
+
+  _connecting(again) {
+    return `${again ? 'Reconnecting' : 'Connecting'}${this._hide() ? '' : ` to ${this.address}`}…`;
+  }
+
+  _describe(reason) {
+    return this._hide() ? this.privacy.scrub(describe(reason, 'The other computer')) : describe(reason, this.address);
+  }
+
   title() {
     const o = this.opened;
-    if (o && o.kind === 'vm') return `${o.name} - ${this.local ? 'this computer' : this.remoteName} - ${product.ardp.name}`;
-    return `${this.remoteName} - ${this.address} - ${product.ardp.name}`;
+    const hide = this._hide();
+    if (o && o.kind === 'vm') {
+      const where = this.local ? 'this computer' : hide ? 'another computer' : this.remoteName;
+      const text = `${o.name} - ${where} - ${product.ardp.name}`;
+      return hide ? this.privacy.scrub(text) : text;
+    }
+    return hide ? `Remote computer - ${product.ardp.name}` : `${this.remoteName} - ${this.address} - ${product.ardp.name}`;
+  }
+
+  // what the window says while there is no picture. kept, so it can be said again
+  // without names when private mode is switched on
+  _tell(channel, make) {
+    this._live = false;
+    this._notice = [channel, make];
+    this.send(channel, make());
+  }
+
+  // private mode was switched: say everything again the way it should read now
+  refresh() {
+    if (this.win.isDestroyed()) return;
+    this.win.setTitle(this.title());
+    this.send('session:title', this.title());
+    if (this.opened) this._announce();
+    if (this._notice && !(this.opened && this._live)) this.send(this._notice[0], this._notice[1]());
   }
 
   send(channel, ...args) {
@@ -147,7 +189,7 @@ class Session extends EventEmitter {
   async reconnect() {
     if (this._reconnecting || this.win.isDestroyed()) return;
     this._reconnecting = true;
-    this.send('session:status', { text: `Reconnecting to ${this.address}…` });
+    this._tell('session:status', () => ({ text: this._connecting(true) }));
     try {
       const old = this.client;
       this.client = null;
@@ -164,7 +206,7 @@ class Session extends EventEmitter {
       this._attach(client);
       await this._open();
     } catch (err) {
-      this.send('session:closed', { code: err.code || 'lost', text: describe(err, this.address) });
+      this._tell('session:closed', () => ({ code: err.code || 'lost', text: this._describe(err) }));
     } finally {
       this._reconnecting = false;
     }
@@ -181,7 +223,7 @@ class Session extends EventEmitter {
       this.aspect = aspect;
       this._fit(config.width, config.height);
     });
-    client.on('waiting', () => this.send('session:status', { text: `Waiting for someone at ${this.remoteName} to allow this…` }));
+    client.on('waiting', () => this._tell('session:status', () => ({ text: `Waiting for someone at ${this._hide() ? 'the other computer' : this.remoteName} to allow this…` })));
     client.on('video-frame', (frame) => {
       // copy out of the socket chunk, ipc would serialize all of it
       this.send('session:frame', { key: frame.key, seq: frame.seq, timestamp: frame.timestamp }, new Uint8Array(frame.data));
@@ -201,7 +243,7 @@ class Session extends EventEmitter {
         this.reconnect();
         return;
       }
-      this.send('session:closed', { code: reason.code, text: describe(reason, this.address) });
+      this._tell('session:closed', () => ({ code: reason.code, text: this._describe(reason) }));
     });
   }
 
@@ -229,29 +271,37 @@ class Session extends EventEmitter {
         this.aspect = aspect;
         if (!this._fitted || changed) this._fit(opened.width, opened.height);
       }
-      const source = client.sources.find((s) => s && s.id === opened.source) || client.sources[0] || {};
-      const displays = (Array.isArray(source.displays) ? source.displays : []).slice(0, 8).map((d, i) => ({
-        id: String(d.id),
-        name: String(d.name || `Display ${i + 1}`).slice(0, 40),
-        primary: d.primary === true,
-      }));
-      this.win.setTitle(this.title());
-      this.send('session:opened', {
-        title: this.title(),
-        kind: opened.kind === 'vm' ? 'vm' : 'desktop',
-        actions: (Array.isArray(opened.actions) ? opened.actions : []).filter((a) => typeof a === 'string').slice(0, 8),
-        control: !!opened.control,
-        viewOnly: this.viewOnly,
-        wanted: !this.options.viewOnly,
-        width: opened.width,
-        height: opened.height,
-        display: String(opened.display || ''),
-        displays,
-      });
+      this._announce();
     } catch (err) {
       if (this.client === client) this.client = null;
-      this.send('session:closed', { code: err.code || 'lost', text: describe(err, this.address) });
+      this._tell('session:closed', () => ({ code: err.code || 'lost', text: this._describe(err) }));
     }
+  }
+
+  _announce() {
+    const { opened, client } = this;
+    if (!opened || !client) return;
+    const hide = this._hide();
+    const source = client.sources.find((s) => s && s.id === opened.source) || client.sources[0] || {};
+    const displays = (Array.isArray(source.displays) ? source.displays : []).slice(0, 8).map((d, i) => ({
+      id: String(d.id),
+      // a monitor's name can say whose it is
+      name: hide ? '' : String(d.name || `Display ${i + 1}`).slice(0, 40),
+      primary: d.primary === true,
+    }));
+    this.win.setTitle(this.title());
+    this.send('session:opened', {
+      title: this.title(),
+      kind: opened.kind === 'vm' ? 'vm' : 'desktop',
+      actions: (Array.isArray(opened.actions) ? opened.actions : []).filter((a) => typeof a === 'string').slice(0, 8),
+      control: !!opened.control,
+      viewOnly: this.viewOnly,
+      wanted: !this.options.viewOnly,
+      width: opened.width,
+      height: opened.height,
+      display: String(opened.display || ''),
+      displays,
+    });
   }
 
   _fit(remoteWidth, remoteHeight) {

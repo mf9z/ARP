@@ -7,6 +7,7 @@ const { app, BrowserWindow, ipcMain, Menu, Tray, dialog, clipboard, protocol, ne
 const product = require('ardp/src/common/product');
 const { parseAddress, formatAddress, isLoopback } = require('ardp/src/common/address');
 const { describe } = require('ardp/src/common/messages');
+const { scrubber, deep } = require('ardp/src/common/privacy');
 const { ArdpClient } = require('ardp/src/client/client');
 const { Config } = require('ardp/src/app/config');
 const { HostService } = require('ardp/src/app/host-service');
@@ -70,6 +71,65 @@ function main() {
   const running = () => vms.state().vms.filter((vm) => vm.state === 'running' || vm.state === 'starting');
   const busy = () => config.data.host.enabled || vms.state().vms.some((vm) => vm.state !== 'stopped');
 
+  // private mode, for when the screen is being shared: no address, computer name, code
+  // or account name reaches any window. what a window must still be able to refer to
+  // gets a stand-in, and everything else on its way out is scrubbed
+  const hiding = () => !!(config && config.data.app.privateMode);
+  const scrub = scrubber(() => (hostService ? [hostService.code, hostService.localCode] : []));
+  const shown = (payload) => (hiding() ? deep(payload, scrub) : payload);
+  const told = (reason, where) => describe(reason, hiding() ? 'The computer' : where);
+
+  // saved computers keep a number of their own, so they can be named without their address
+  function recents() {
+    const client = config.data.client;
+    const list = (Array.isArray(client.recent) ? client.recent : []).filter((r) => r && typeof r.address === 'string');
+    const used = new Set();
+    let dirty = !Array.isArray(client.recent) || list.length !== client.recent.length;
+    for (const r of list) {
+      if (Number.isInteger(r.n) && r.n > 0 && !used.has(r.n)) {
+        used.add(r.n);
+        continue;
+      }
+      let n = 1;
+      while (used.has(n) || list.some((other) => other !== r && other.n === n)) n += 1;
+      r.n = n;
+      used.add(n);
+      dirty = true;
+    }
+    if (dirty) {
+      client.recent = list;
+      config.save();
+    }
+    return list;
+  }
+  const alias = (r) => `Saved computer ${r.n}`;
+  const unalias = (text) => {
+    const match = /^Saved computer (\d+)$/.exec(String(text || '').trim());
+    const saved = match && recents().find((r) => r.n === Number(match[1]));
+    return saved ? saved.address : text;
+  };
+
+  function hostView() {
+    const host = hostService.state();
+    if (!hiding()) return host;
+    return {
+      ...host,
+      hidden: true,
+      name: 'Hidden',
+      code: host.code ? 'Hidden' : '',
+      addresses: host.addresses.length ? ['Hidden'] : [],
+      fingerprint: 'Hidden',
+      sessions: host.sessions.map((s, i) => ({ ...s, name: `Computer ${i + 1}`, address: '' })),
+    };
+  }
+
+  function vmsView() {
+    const state = vms.state();
+    if (!hiding()) return state;
+    // an installer's folder carries the account name
+    return { ...state, private: true, vms: state.vms.map((vm) => ({ ...vm, iso: vm.iso ? path.basename(vm.iso) : '' })) };
+  }
+
   const trust = {
     get: (id) => {
       const known = config.data.client.known;
@@ -83,13 +143,14 @@ function main() {
       config.save();
     },
     changed: async ({ id, presented, name }) => {
+      const hide = hiding();
       const { response } = await ask(windows.rdp, {
         type: 'warning',
-        message: `The identity of ${id} has changed.`,
+        message: hide ? 'The identity of that computer has changed.' : `The identity of ${id} has changed.`,
         detail:
-          `"${name}" is presenting a different identity than the last time you connected to this address.\n\n` +
-          'That is expected if ARP was reinstalled on that computer. Otherwise another machine may be answering in its place.\n\n' +
-          `New fingerprint: ${presented.slice(0, 47)}…`,
+          `${hide ? 'It' : `"${name}"`} is presenting a different identity than the last time you connected to this address.\n\n` +
+          'That is expected if ARP was reinstalled on that computer. Otherwise another machine may be answering in its place.' +
+          (hide ? '' : `\n\nNew fingerprint: ${presented.slice(0, 47)}…`),
         buttons: ['Connect anyway', 'Cancel'],
       });
       return response === 0;
@@ -104,15 +165,16 @@ function main() {
   // someone at this computer says yes or no to an incoming connection
   async function approve(who, signal) {
     if (quiet) return true;
-    const what = who.kind === 'vm' ? `the virtual machine "${who.sourceName}"` : 'this computer';
+    const hide = hiding();
+    const what = who.kind === 'vm' ? `the virtual machine "${hide ? scrub(who.sourceName) : who.sourceName}"` : 'this computer';
     const name = String(who.name || '')
       .replace(/[^\x20-\x7e\u00a0-\u200d\u2010-\u2027\u2030-\u2065\u2070-\uffff]/g, '')
       .slice(0, 40);
     const { response } = await ask(null, {
       type: 'question',
       // the name is whatever the caller says it is, so it is shown as a quote after the address
-      message: `A computer at ${who.address}${name ? ` calling itself "${name}"` : ''} wants to ${who.viewOnly ? 'watch' : 'use'} ${what}.`,
-      detail: `They already entered the access code. If nobody answers in ${ASK_SECONDS} seconds the answer is no.`,
+      message: `${hide ? 'Another computer' : `A computer at ${who.address}${name ? ` calling itself "${name}"` : ''}`} wants to ${who.viewOnly ? 'watch' : 'use'} ${what}.`,
+      detail: `They already entered the access code. If nobody answers in ${ASK_SECONDS} seconds the answer is no.${hide ? '\n\nPrivate mode is on, so who is asking is not shown.' : ''}`,
       buttons: ['Allow', 'Deny'],
       signal: AbortSignal.any([signal, AbortSignal.timeout(ASK_SECONDS * 1000)]),
     });
@@ -169,7 +231,7 @@ function main() {
 
   function send(name, channel, payload) {
     const win = windows[name];
-    if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
+    if (win && !win.isDestroyed()) win.webContents.send(channel, shown(payload));
   }
 
   function homeState() {
@@ -178,6 +240,7 @@ function main() {
     return {
       product: product.arp,
       version: app.getVersion(),
+      privateMode: hiding(),
       host: { enabled: host.enabled, listening: host.listening, error: host.error, connected: host.sessions.filter((s) => s.streaming).length },
       vms: { available: all.available, total: all.vms.length, running: running().length },
     };
@@ -185,6 +248,7 @@ function main() {
 
   function rdpState() {
     const client = config.data.client;
+    const hide = hiding();
     return {
       product: { name: product.ardp.name, meaning: product.ardp.meaning, family: product.arp },
       version: app.getVersion(),
@@ -192,10 +256,11 @@ function main() {
       packaged: app.isPackaged,
       startAtLogin: !!config.data.app.startAtLogin,
       defaultPort: product.defaultPort,
-      host: hostService.state(),
+      private: hide,
+      host: hostView(),
       localVms: running().map((vm) => ({ id: vm.id, name: vm.name })),
       client: {
-        recent: (Array.isArray(client.recent) ? client.recent : []).map((r) => ({ address: r.address, name: r.name || '', hasCode: !!r.code })),
+        recent: recents().map((r) => ({ address: hide ? alias(r) : r.address, name: hide ? '' : r.name || '', hasCode: !!r.code, n: r.n })),
         quality: client.quality,
         viewOnly: !!client.viewOnly,
         fullScreen: !!client.fullScreen,
@@ -205,9 +270,9 @@ function main() {
 
   function changed() {
     send('home', 'home:state', homeState());
-    send('rdp', 'host:state', hostService.state());
+    send('rdp', 'host:state', hostView());
     send('rdp', 'local-vms', rdpState().localVms);
-    send('vms', 'vm:state', vms.state());
+    send('vms', 'vm:state', vmsView());
     refreshTray();
   }
 
@@ -245,10 +310,12 @@ function main() {
   async function remember(target, name, code, keepCode) {
     const client = config.data.client;
     const address = formatAddress(target) + (target.source ? `/${target.source}` : '');
-    const rest = (Array.isArray(client.recent) ? client.recent : []).filter((r) => r && r.address !== address);
-    const entry = { address, name };
+    const old = recents().find((r) => r.address === address);
+    const rest = recents().filter((r) => r !== old);
+    const entry = { address, name, n: old ? old.n : 0 };
     if (keepCode) entry.code = await config.seal(code);
     client.recent = [entry, ...rest].slice(0, MAX_RECENT);
+    recents();
     config.save();
   }
 
@@ -259,10 +326,10 @@ function main() {
   }
 
   async function connect(request, { local = false } = {}) {
-    const target = parseAddress(request.address);
+    const target = parseAddress(unalias(request.address));
     if (!target) return { ok: false, field: 'address', text: 'Type the address of the other computer, for example 192.168.1.20.' };
-    const shown = formatAddress(target);
-    const address = shown + (target.source ? `/${target.source}` : '');
+    const where = formatAddress(target);
+    const address = where + (target.source ? `/${target.source}` : '');
 
     let code = String(request.code || '').trim();
     if (!code) code = (await savedCode(address)) || '';
@@ -296,11 +363,14 @@ function main() {
     } catch (err) {
       if (err.code === 'cancelled') return { ok: false, cancelled: true };
       const field = err.code === 'auth_failed' ? 'code' : ['refused', 'unreachable', 'not_found', 'bad_protocol'].includes(err.code) ? 'address' : null;
-      return { ok: false, code: err.code, field, text: describe(err, shown) };
+      return { ok: false, code: err.code, field, text: told(err, where) };
     }
 
     const start = async () => {
-      if (!local) await remember(target, client.remote.name, code, !!request.remember);
+      if (!local) {
+        await remember(target, client.remote.name, code, !!request.remember);
+        send('rdp', 'launcher:state', rdpState());
+      }
       startSession({ target, client, dial, options, local });
       return { ok: true };
     };
@@ -313,12 +383,13 @@ function main() {
       const sources = client.sources.slice(0, 32).map((s) => ({
         id: String(s.id),
         kind: s.kind === 'vm' ? 'vm' : 'desktop',
-        name: String(s.name || ''),
+        // the pc's own entry is named after the computer
+        name: s.kind !== 'vm' && hiding() ? 'The computer' : String(s.name || ''),
         state: s.state ? String(s.state) : '',
       }));
       // the pc first, then what is running, then the rest
       const rank = (s) => (s.kind !== 'vm' ? 0 : live(s) ? 1 : 2);
-      return { ok: false, choose: { name: client.remote.name, sources: sources.sort((a, b) => rank(a) - rank(b)) } };
+      return { ok: false, choose: { name: hiding() ? 'The other computer' : client.remote.name, sources: sources.sort((a, b) => rank(a) - rank(b)) } };
     }
     return start();
   }
@@ -341,7 +412,7 @@ function main() {
   }
 
   function startSession({ target, client, dial, options, local }) {
-    const session = new Session({ target, client, redial: dial, options, local, quiet, icon: icon(256) });
+    const session = new Session({ target, client, redial: dial, options, local, quiet, icon: icon(256), privacy: { on: hiding, scrub } });
     sessions.add(session);
     // like mstsc, the connect window steps aside for a remote session and comes back after
     const rdp = windows.rdp;
@@ -380,7 +451,8 @@ function main() {
         return ok ? fn(event, ...args) : undefined;
       };
     };
-    const handle = (channel, fn) => ipcMain.handle(channel, guard(channel, fn));
+    // whatever a window asked for comes back through the same scrubbing as what it is sent
+    const handle = (channel, fn) => ipcMain.handle(channel, guard(channel, async (...args) => shown(await fn(...args))));
     const listen = (channel, fn) => ipcMain.on(channel, guard(channel, fn));
 
     ipcMain.on('window:action', (event, action) => {
@@ -400,6 +472,15 @@ function main() {
     });
 
     handle('home:state', () => homeState());
+    handle('home:private', (_e, on) => {
+      config.data.app.privateMode = on === true;
+      config.save();
+      // every open window is told again, so nothing shown a moment ago is left on screen
+      changed();
+      send('rdp', 'launcher:state', rdpState());
+      for (const session of sessions) session.refresh();
+      return homeState();
+    });
     listen('home:open', (_e, name) => {
       if (name === 'rdp' || name === 'vms') open(name);
     });
@@ -413,8 +494,8 @@ function main() {
     });
     handle('launcher:choose', (_e, id) => choose(id));
     handle('launcher:forget', (_e, address) => {
-      const client = config.data.client;
-      client.recent = (Array.isArray(client.recent) ? client.recent : []).filter((r) => r && r.address !== address);
+      const gone = unalias(address);
+      config.data.client.recent = recents().filter((r) => r.address !== gone);
       config.save();
       return rdpState();
     });
@@ -435,39 +516,41 @@ function main() {
           if (response === 0) hostService.setAskFirst(false);
         }
         if (change.port !== undefined) await hostService.setPort(Number(change.port));
-        return { ok: true, host: hostService.state() };
+        return { ok: true, host: hostView() };
       } catch (err) {
-        return { ok: false, text: err.message, host: hostService.state() };
+        return { ok: false, text: err.message, host: hostView() };
       }
     });
     handle('host:new-code', async () => {
       await hostService.newCode();
-      return hostService.state();
+      return hostView();
     });
     listen('host:disconnect', (_e, id) => hostService.disconnect(Number.isInteger(id) ? id : undefined));
 
+    let pickedIso = null;
+    const withIso = (spec) => (pickedIso && spec.iso === pickedIso.name ? { ...spec, iso: pickedIso.file } : spec);
     const vmCall = async (run) => {
       try {
         await run();
-        return { ok: true, vms: vms.state() };
+        return { ok: true, vms: vmsView() };
       } catch (err) {
-        return { ok: false, text: err.message, vms: vms.state() };
+        return { ok: false, text: err.message, vms: vmsView() };
       }
     };
-    handle('vm:state', () => vms.state());
-    handle('vm:create', (_e, spec) => vmCall(() => vms.create(spec || {})));
+    handle('vm:state', () => vmsView());
+    handle('vm:create', (_e, spec) => vmCall(() => vms.create(withIso(spec || {}))));
     handle('vm:start', (_e, id) => vmCall(() => vms.start(id)));
     handle('vm:stop', (_e, id, force) => vmCall(() => vms.stop(id, force === true)));
     handle('vm:remove', async (_e, id) => {
       const vm = vms.state().vms.find((v) => v.id === id);
-      if (!vm) return { ok: false, vms: vms.state() };
+      if (!vm) return { ok: false, vms: vmsView() };
       const { response } = await ask(windows.vms, {
         type: 'warning',
         message: `Delete "${vm.name}" and its disk?`,
         detail: 'Everything stored inside the virtual machine is lost. This cannot be undone.',
         buttons: ['Delete', 'Cancel'],
       });
-      if (response !== 0) return { ok: false, cancelled: true, vms: vms.state() };
+      if (response !== 0) return { ok: false, cancelled: true, vms: vmsView() };
       return vmCall(() => vms.remove(id));
     });
     handle('vm:open', async (_e, id) => {
@@ -483,10 +566,19 @@ function main() {
         filters: [{ name: 'Disc images', extensions: ['iso', 'img'] }],
         properties: ['openFile'],
       });
-      return picked.canceled ? '' : picked.filePaths[0];
+      if (picked.canceled) return '';
+      if (!hiding()) return picked.filePaths[0];
+      // the page gets the file's name only, and the folder is put back when the vm is made
+      pickedIso = { name: scrub(path.basename(picked.filePaths[0])), file: picked.filePaths[0] };
+      return pickedIso.name;
     });
 
-    listen('app:copy', (_e, text) => clipboard.writeText(String(text || '').slice(0, 4096)));
+    // copied here rather than in the page, so the page never has to hold what it is not showing
+    listen('host:copy', (_e, what) => {
+      const host = hostService.state();
+      if (what === 'code' && host.code) clipboard.writeText(host.code);
+      else if (what === 'address' && host.addresses[0]) clipboard.writeText(host.port === product.defaultPort ? host.addresses[0] : `${host.addresses[0]}:${host.port}`);
+    });
     handle('app:start-at-login', (_e, on) => {
       config.data.app.startAtLogin = !!on;
       config.save();

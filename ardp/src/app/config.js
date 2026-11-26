@@ -24,6 +24,7 @@ const DEFAULTS = {
   },
   app: {
     startAtLogin: false,
+    privateMode: false,
   },
 };
 

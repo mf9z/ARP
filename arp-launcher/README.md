@@ -12,6 +12,12 @@
 | Remote desktop    | [ardp](../ardp)'s window: connect to a computer, or let computers connect to this one |
 | Virtual machines  | the VM manager, on top of [arp-vm](../arp-vm): new, open, start, shut down, remove |
 
+Under the buttons is **Settings**, with one switch so far:
+
+| setting       | what it does |
+|---------------|--------------|
+| Private mode  | for sharing your screen. Every window stops showing addresses, computer names, access codes and account folders. Saved computers are listed by number, typed addresses and codes are dotted out, and anything else on its way to a window is scrubbed first |
+
 It also owns what has to outlive any one window: the tray icon while this
 computer is reachable or runs a VM, the allow / deny question when someone
 connects, and shutting VMs down properly when the app quits.

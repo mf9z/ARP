@@ -405,6 +405,79 @@ exports.runQuiet = async ({ app, hostService, vms, open, sessions }) => {
     await closeSession(session);
     await js(rdp, `document.getElementById('control').click()`);
 
+    // private mode: once it is on, no window may hold an address, this computer's name or a code
+    {
+      const { BrowserWindow } = require('electron');
+      const os = require('os');
+      const here = `127.0.0.1:${PORT}`;
+      // a name that is a plain word cannot be told from the page's own text; its own field is checked below
+      const named = /[^a-z]/i.test(os.hostname()) ? os.hostname() : '';
+      const secrets = () => ['127.0.0.1', named, hostService.code, hostService.state().fingerprint, ...hostService.state().addresses].filter((s) => s && s.length >= 4);
+      const leaks = async () => {
+        const found = [];
+        for (const win of BrowserWindow.getAllWindows()) {
+          const page = await js(win, `document.title + '\\n' + document.documentElement.outerHTML + '\\n' + [...document.querySelectorAll('input:not(.masked)')].map((i) => i.value).join('\\n')`);
+          const all = `${win.getTitle()}\n${page}`.toLowerCase();
+          for (const secret of secrets()) if (all.includes(secret.toLowerCase())) found.push(`${secret.slice(0, 14)} in "${win.getTitle()}"`);
+        }
+        return found;
+      };
+      const setField = (id, value) =>
+        js(rdp, `(() => { const el = document.getElementById(${JSON.stringify(id)}); el.value = ${JSON.stringify(value)}; el.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+      const title = 'Remote computer - ARDP';
+
+      await fill(here);
+      await click(rdp, 'connect');
+      await until('a session before private mode', () => sessions.size === 1);
+      session = [...sessions][0];
+      await until('its picture', async () => (await frames(session.win)) >= 1);
+      const before = await leaks();
+      expect(before.some((l) => l.startsWith('127.0.0.1')) && before.some((l) => l.startsWith(hostService.code)), `without private mode the address and the code are in the windows (${before.length} places)`);
+
+      await click(home, 'private-mode');
+      await until('private mode', () => hostService.config.data.app.privateMode === true && session.win.getTitle() === title);
+      await sleep(500);
+      const after = await leaks();
+      expect(after.length === 0, `with private mode on, no window holds an address, a computer name or a code${after.length ? ': ' + after.join(', ') : ''}`);
+      expect((await text(session.win, 'title')) === title, 'the session title bar no longer names the computer');
+      const saved = hostService.config.data.client.recent.find((r) => r.address === here);
+      const byNumber = `Saved computer ${saved.n}`;
+      expect((await js(rdp, `document.getElementById('address').value`)) === byNumber, `the saved computer goes by a number instead of its address: ${byNumber}`);
+      expect((await text(rdp, 'host-address')) === 'Hidden' && (await text(rdp, 'host-code')) === 'Hidden' && (await text(rdp, 'host-name')) === 'Hidden', "this computer's name, address and code read Hidden");
+
+      // the other side ends it: the notice must not name anyone either
+      hostService.disconnect();
+      const bye = await until('the ended notice', () => js(session.win, `document.getElementById('notice').hidden ? '' : document.getElementById('notice-text').textContent`));
+      const ended = await leaks();
+      expect(ended.length === 0, `a session that ends says so without names: "${bye}"${ended.length ? ' but ' + ended.join(', ') : ''}`);
+      await closeSession(session);
+
+      // connecting by that number reaches the same computer
+      await setField('address', byNumber);
+      await setField('code', hostService.code);
+      await click(rdp, 'connect');
+      await until('a session by number', () => sessions.size === 1);
+      session = [...sessions][0];
+      await until('it to open', () => session.opened);
+      expect(session.address === here && session.win.getTitle() === title, 'connecting to a saved computer by its number reaches the right one');
+      await closeSession(session);
+
+      // something typed by hand is dotted out, and an error does not repeat it
+      await setField('address', '127.0.0.1:1');
+      await setField('code', hostService.code);
+      expect(await js(rdp, `document.getElementById('address').classList.contains('masked') && document.getElementById('code').classList.contains('masked')`), 'an address or code typed in private mode is dotted out');
+      await click(rdp, 'connect');
+      const refusal = await until('the refusal', () => js(rdp, `document.getElementById('message').hidden ? '' : document.getElementById('message-text').textContent`));
+      const told = await leaks();
+      expect(!/127\.0\.0\.1/.test(refusal) && told.length === 0, `an error does not repeat the address: "${refusal}"${told.length ? ' but ' + told.join(', ') : ''}`);
+
+      await setField('address', byNumber);
+      await click(home, 'private-mode');
+      await until('private mode to go off', async () => hostService.config.data.app.privateMode === false && (await js(rdp, `document.getElementById('address').value`)) === here);
+      expect((await text(rdp, 'host-code')) === hostService.code && !(await js(rdp, `document.getElementById('address').classList.contains('masked')`)), 'switching it off brings everything back');
+
+    }
+
     expect(hidden(), 'no window was ever shown');
     await vms.remove('quiet-vm');
     expect(vms.state().vms.length === 0, 'the vm can be removed once it is off');

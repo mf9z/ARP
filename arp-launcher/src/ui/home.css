@@ -74,3 +74,11 @@
 .needs span {
   flex: 1;
 }
+
+.settings {
+  margin: 12px 10px 2px;
+  padding-bottom: 10px;
+}
+.settings p {
+  margin: 4px 0 0 19px;
+}

@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('ardpSession', {
 
   onInit: on('session:init'),
   onOpened: on('session:opened'),
+  onTitle: on('session:title'),
   onConfig: on('session:config'),
   onFrame: on('session:frame'),
   onStatus: on('session:status'),

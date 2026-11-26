@@ -85,6 +85,20 @@ If the other computer has a virtual machine running you're asked which to
 open, the main PC or the VM. A VM running on your own computer shows up in
 **Remote desktop** with an **Open** button, no address needed.
 
+### Private mode
+
+Tick **Private mode** in the launcher's settings before you share your screen.
+From then on no ARP window shows an address, a computer's name, an access code
+or the folder your account lives in.
+
+- Saved computers go by **Saved computer 1**, **Saved computer 2** and so on.
+- What you type into the address and access code boxes is dotted out.
+- **This computer** reads Hidden. **Copy** still copies the real address and code.
+- Session title bars, notices, errors and the allow / deny question name nobody.
+
+It hides what ARP itself shows. It cannot hide what is on the other computer's
+desktop, or what your system shows in its own file dialogs.
+
 More in [ardp](ardp) and [arp-vm](arp-vm).
 
 ## Development

@@ -38,6 +38,10 @@
   }
 
   function render(next) {
+    if (!!next.private !== !!vms.private) {
+      message('');
+      $('vm-iso').value = '';
+    }
     vms = next;
     $('vm-hint').textContent = vms.available
       ? 'Open them here, or from another computer like any desktop.'
