@@ -207,6 +207,8 @@ class ArdpClient extends EventEmitter {
   }
 
   _onMessage(type, payload) {
+    // the computer we connected to may show us things. it may never ask, steer or open anything here
+    if (wire.FROM_CLIENT.has(type)) throw new wire.ProtocolError('the other computer tried to turn the connection around');
     if (type === T.VIDEO_FRAME) {
       this.emit('video-frame', wire.unpackVideoFrame(payload));
       return;

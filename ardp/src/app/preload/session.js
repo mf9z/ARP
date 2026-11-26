@@ -14,7 +14,7 @@ contextBridge.exposeInMainWorld('ardpSession', {
   reconnect: () => ipcRenderer.send('session:reconnect'),
   display: (id) => ipcRenderer.send('session:display', id),
   action: (name) => ipcRenderer.send('session:action', name),
-  viewOnly: (on) => ipcRenderer.send('session:view-only', on === true),
+  control: (on) => ipcRenderer.send('session:control', on === true),
   window: (action) => ipcRenderer.send('window:action', action),
 
   onInit: on('session:init'),

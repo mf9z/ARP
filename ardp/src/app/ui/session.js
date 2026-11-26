@@ -129,11 +129,25 @@
   const controlling = () => !!opened && opened.control && !viewOnly && live && !ended;
 
   function refreshMode() {
-    body.classList.toggle('controlling', controlling());
+    const on = controlling();
+    // the other computer was asked for control and said no: a click here changes nothing
+    const refused = !!opened && !opened.control && opened.wanted;
+    body.classList.toggle('controlling', on);
+
+    const mode = $('mode');
+    mode.hidden = !opened || ended;
+    mode.disabled = refused || !live;
+    mode.setAttribute('aria-pressed', String(on));
+    $('mode-text').textContent = on ? 'Controlling' : refused ? 'Watch only' : 'Take control';
+    mode.title = on
+      ? 'Your mouse and keyboard go to the other computer. Click to only watch.'
+      : refused
+        ? 'The other computer only lets you watch.'
+        : 'Click to use your mouse and keyboard on the other computer.';
+
     const item = menu.querySelector('[data-action="viewonly"]');
-    const forced = !opened || !opened.control;
-    item.setAttribute('aria-checked', String(viewOnly || forced));
-    item.setAttribute('aria-disabled', String(forced));
+    item.setAttribute('aria-checked', String(!on));
+    item.setAttribute('aria-disabled', String(refused || !live));
     for (const el of menu.querySelectorAll('[data-action^="send-"]')) el.setAttribute('aria-disabled', String(!controlling()));
   }
 
@@ -307,10 +321,7 @@
         api.window('fullscreen');
         break;
       case 'viewonly':
-        releaseAll();
-        viewOnly = !viewOnly;
-        api.viewOnly(viewOnly);
-        refreshMode();
+        toggleControl();
         break;
       case 'display':
         if (item.dataset.display !== opened.display) {
@@ -335,6 +346,17 @@
     }
     canvas.focus();
   });
+
+  // one button, both ways: take the mouse and keyboard, or go back to watching
+  function toggleControl() {
+    if (!opened || !live) return;
+    releaseAll();
+    viewOnly = controlling();
+    api.control(!viewOnly);
+    refreshMode();
+    canvas.focus();
+  }
+  $('mode').addEventListener('click', toggleControl);
 
   $('min').addEventListener('click', () => api.window('minimize'));
   $('max').addEventListener('click', () => api.window(fullscreen ? 'fullscreen' : 'maximize'));
@@ -387,6 +409,7 @@
 
   api.onOpened((info) => {
     opened = info;
+    viewOnly = !!info.viewOnly;
     ended = false;
     document.title = info.title;
     $('title').textContent = info.title;

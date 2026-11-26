@@ -252,6 +252,7 @@ class HostSession {
   }
 
   _ready(type, payload) {
+    if (wire.FROM_HOST.has(type)) throw new wire.ProtocolError('a client cannot act as the host');
     switch (type) {
       case T.OPEN:
         this._open(wire.parseJson(payload)).catch((err) => {

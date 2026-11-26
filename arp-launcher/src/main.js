@@ -5,7 +5,7 @@ const path = require('path');
 const { pathToFileURL } = require('url');
 const { app, BrowserWindow, ipcMain, Menu, Tray, dialog, clipboard, protocol, net, shell, session } = require('electron');
 const product = require('ardp/src/common/product');
-const { parseAddress, formatAddress } = require('ardp/src/common/address');
+const { parseAddress, formatAddress, isLoopback } = require('ardp/src/common/address');
 const { describe } = require('ardp/src/common/messages');
 const { ArdpClient } = require('ardp/src/client/client');
 const { Config } = require('ardp/src/app/config');
@@ -56,6 +56,15 @@ function main() {
   let quitting = false;
   const windows = {};
   const sessions = new Set();
+
+  // is that address this computer?
+  const thisComputer = (host) => {
+    const name = String(host).toLowerCase();
+    if (isLoopback(name) || name === os.hostname().toLowerCase()) return true;
+    return Object.values(os.networkInterfaces())
+      .flat()
+      .some((a) => a && a.address.toLowerCase() === name);
+  };
 
   const clientInfo = () => ({ name: os.hostname(), platform: process.platform, version: app.getVersion() });
   const running = () => vms.state().vms.filter((vm) => vm.state === 'running' || vm.state === 'starting');
@@ -267,6 +276,7 @@ function main() {
     if (!local) {
       Object.assign(config.data.client, options);
       config.save();
+      options.watchFirst = thisComputer(target.host);
     }
 
     const dial = async () => {

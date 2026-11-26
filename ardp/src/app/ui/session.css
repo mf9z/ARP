@@ -90,3 +90,46 @@ body.fullscreen.reveal .titlebar {
     transition: none;
   }
 }
+
+.tb-mode {
+  -webkit-app-region: no-drag;
+  flex: none;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  margin-right: 8px;
+  padding: 0 9px 0 7px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: linear-gradient(#fbfbfb, #e4e4e4);
+  color: var(--text);
+  white-space: nowrap;
+}
+.tb-mode svg {
+  width: 10px;
+  height: 12px;
+  fill: #ffffff;
+  stroke: var(--ink);
+  stroke-width: 1;
+  stroke-linejoin: round;
+}
+.tb-mode:hover {
+  border-color: var(--blue);
+  background: linear-gradient(#f4fbff, #d8f0fb);
+}
+.tb-mode[aria-pressed='true'] {
+  border-color: var(--blue-deep);
+  background: var(--blue);
+  color: #ffffff;
+}
+.tb-mode[aria-pressed='true'] svg {
+  fill: var(--ink);
+  stroke: #ffffff;
+}
+.tb-mode:disabled {
+  border-color: #cfcfcf;
+  background: #f1f1f1;
+  color: #8e8e8e;
+}

@@ -178,7 +178,7 @@
 
   function setConnecting(on) {
     connecting = on;
-    for (const id of ['address', 'code', 'remember', 'quality', 'view-only', 'full-screen']) $(id).disabled = on;
+    for (const id of ['address', 'code', 'remember', 'control', 'quality', 'full-screen']) $(id).disabled = on;
     $('combo-btn').disabled = on || state.client.recent.length === 0;
     $('connect').textContent = on ? 'Cancel' : 'Connect';
     $('connect').classList.toggle('default', !on);
@@ -199,7 +199,7 @@
       code: code.value,
       remember: $('remember').checked,
       quality: $('quality').value,
-      viewOnly: $('view-only').checked,
+      viewOnly: !$('control').checked,
       fullScreen: $('full-screen').checked,
     });
     setConnecting(false);
@@ -257,7 +257,7 @@
 
   function renderClient() {
     $('quality').value = state.client.quality;
-    $('view-only').checked = state.client.viewOnly;
+    $('control').checked = !state.client.viewOnly;
     $('full-screen').checked = state.client.fullScreen;
     renderRecent();
     if (!address.value && state.client.recent.length) address.value = state.client.recent[0].address;

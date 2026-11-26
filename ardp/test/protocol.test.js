@@ -368,3 +368,25 @@ test('asking twice at once from one address is refused, and a no counts against 
   assert.equal((await waiting).code, 'denied');
   assert.ok(host._failures.get('127.0.0.1').count >= 1);
 });
+
+test('a connection cannot be turned around', async (t) => {
+  const { port, host, source } = await startHost(t);
+
+  // the host tries to steer the client: the client hangs up at once
+  const c = client(port);
+  await c.connect();
+  await c.open({});
+  const closed = new Promise((resolve) => c.once('close', resolve));
+  const session = [...host.connections][0];
+  for (const type of [wire.T.INPUT, wire.T.OPEN, wire.T.ACTION]) session.channel.sendJson(type, { t: 'move', x: 0.5, y: 0.5, action: 'restart', source: 'desktop' });
+  assert.equal((await closed).code, 'bad_protocol');
+
+  // a client that starts sending pictures is cut off, and nothing reaches the source
+  const d = client(port);
+  await d.connect();
+  await d.open({});
+  const gone = new Promise((resolve) => d.once('close', resolve));
+  d.channel.send(wire.T.VIDEO_FRAME, Buffer.alloc(64));
+  assert.equal((await gone).code, 'bad_protocol');
+  assert.deepEqual(source.streams.map((s) => s.inputs.length), [0, 0]);
+});

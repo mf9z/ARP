@@ -35,6 +35,7 @@ class Session extends EventEmitter {
     this.target = target;
     this.local = !!local;
     this.viewOnly = !!options.viewOnly;
+    this._asked = false;
     this.address = formatAddress(target);
     this.redial = redial;
     this.options = options;
@@ -87,8 +88,18 @@ class Session extends EventEmitter {
       if (this.client) this.client.requestKeyframe();
     });
     ipc.on('session:reconnect', () => this.reconnect());
-    ipc.on('session:view-only', (_e, on) => {
-      this.viewOnly = on === true;
+    ipc.on('session:control', (_e, on) => {
+      if (on !== true) {
+        this.viewOnly = true;
+        return;
+      }
+      this.viewOnly = false;
+      this._asked = true;
+      // the host was told this session only watches: ask again, this time for control
+      if (this.opened && !this.opened.control && this.options.viewOnly) {
+        this.options.viewOnly = false;
+        this.reconnect();
+      }
     });
     ipc.on('session:action', (_e, name) => {
       if (this.client && this._control() && typeof name === 'string') this.client.sendAction(name);
@@ -208,6 +219,9 @@ class Session extends EventEmitter {
       if (this.client !== client || this.win.isDestroyed()) return;
       const opened = tidy(raw || {});
       this.opened = opened;
+      // looking at this very computer, the pointer would chase its own picture: start out
+      // watching and let the person take control when the window is somewhere sensible
+      if (this.options.watchFirst && opened.kind !== 'vm' && !this._asked) this.viewOnly = true;
       this._clip = clipboard.readText();
       if (opened.width > 0 && opened.height > 0) {
         const aspect = opened.width / opened.height;
@@ -227,6 +241,8 @@ class Session extends EventEmitter {
         kind: opened.kind === 'vm' ? 'vm' : 'desktop',
         actions: (Array.isArray(opened.actions) ? opened.actions : []).filter((a) => typeof a === 'string').slice(0, 8),
         control: !!opened.control,
+        viewOnly: this.viewOnly,
+        wanted: !this.options.viewOnly,
         width: opened.width,
         height: opened.height,
         display: String(opened.display || ''),

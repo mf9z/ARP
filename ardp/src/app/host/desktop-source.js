@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, desktopCapturer, screen, clipboard, systemPreferences } = require('electron');
+const { desktopCapturer, screen, clipboard, systemPreferences } = require('electron');
 const { Source, SourceStream } = require('../../host/source');
 const { ArdpError } = require('../../protocol/errors');
 const { Encoder } = require('./encoder');
@@ -83,10 +83,7 @@ class DesktopStream extends SourceStream {
     this.fps = fps;
     this.bitrate = bitrate;
 
-    // over loopback the pointer would chase itself, so those sessions only watch
-    const testing = !app.isPackaged && process.env.ARDP_LOOPBACK_INPUT === '1';
-    const loopback = request.peer.loopback && !testing;
-    const control = !request.viewOnly && !!source.input && source.allowControl() && !loopback;
+    const control = !request.viewOnly && !!source.input && source.allowControl();
     this.info = {
       source: 'desktop',
       kind: 'desktop',

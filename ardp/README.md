@@ -49,7 +49,9 @@ Both computers run the same app.
 
 1. On the computer you want to reach, open **This computer** and tick
    **Allow remote connections**. It shows an address and an access code.
-2. On the one you're sitting at, type both and press **Connect**.
+2. On the one you're sitting at, type both and press **Connect**. Leave
+   **Click and control with my mouse and keyboard** ticked to use that
+   computer, or untick it to only watch.
 
 ```
 192.168.1.20            default port 7389
@@ -59,6 +61,7 @@ studio-pc               a name works too
 
 | in a session        | what it does |
 |---------------------|--------------|
+| **Take control**    | the button in the title bar. Click it to use your mouse and keyboard on the other computer; it turns blue and reads **Controlling**. Click again to go back to watching |
 | click the penguin   | window menu: full screen, view only, switch display, send the Windows key, disconnect |
 | `Ctrl+Alt+Enter`    | full screen. The title bar hides; rest the pointer on the top edge to get it back |
 | copy / paste        | text copied on one side can be pasted on the other |
@@ -110,6 +113,9 @@ passes so text ends up sharp. The wire format is in
   disconnects everyone using the old one.
 - Saved codes and the host's private key are encrypted with the OS credential
   store.
+- A connection only goes one way. You see and steer the computer you connected
+  to; it can never see, steer or open anything on yours through that
+  connection. If it tries, the connection is dropped.
 - View only is enforced on your side, whatever the other computer claims, and
   the clipboard is only shared while you control and the session window is in
   front.
@@ -126,8 +132,9 @@ passes so text ends up sharp. The wire format is in
   sitting at. The window menu can send the Windows key.
 - It runs as a normal app, so it can't see or control UAC prompts or the lock
   screen. Someone has to be signed in on the host.
-- Connecting to the same computer only watches, otherwise the pointer chases
-  itself.
+- Connecting to the same computer starts out watching, because the pointer
+  would chase its own picture. Move the window where you want it, then press
+  **Take control**.
 - Not tested on macOS yet. The host needs Screen Recording and Accessibility
   permission there.
 

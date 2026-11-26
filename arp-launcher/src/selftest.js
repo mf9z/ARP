@@ -100,7 +100,7 @@ exports.run = async ({ app, hostService, open, sessions }) => {
     log(`title: "${session.win.getTitle()}"  bounds: ${JSON.stringify(session.win.getBounds())}`);
     log(`video: ${stats.codec}, ${stats.frames} frames in ${seconds.toFixed(1)} s, ${stats.keyFrames} key, ${(stats.bytes / 1024).toFixed(0)} KiB, first frame after ${stats.firstFrameMs} ms`);
     log(`host sees: ${JSON.stringify(hostService.host.list()[0])}`);
-    if (session.opened.control) throw new Error('a loopback session to this desktop must be view only');
+    if (!session.viewOnly || session._control()) throw new Error('a session to this same computer must start out watching');
     await shot(session.win, '7-session.png');
 
     await click(session.win, 'sysmenu');
@@ -205,35 +205,33 @@ async function inputChecks({ hostService, launcher, sessions, host, log, sleep, 
     log('pointer through the wire: skipped, needs a second display');
     return;
   }
-  process.env.ARDP_LOOPBACK_INPUT = '1';
-  try {
-    await setField(launcher, 'code', host.code);
-    await click(launcher, 'connect');
-    await until('the control session', () => sessions.size === 1);
-    const session = [...sessions][0];
-    session.win.setBounds({ x: park.workArea.x + 40, y: park.workArea.y + 40, width: 802, height: 484 });
-    await until('control', async () => session.opened && session.opened.control && (await js(session.win, `document.body.classList.contains('controlling')`)));
-    await sleep(300);
+  await setField(launcher, 'code', host.code);
+  await click(launcher, 'connect');
+  await until('the control session', () => sessions.size === 1);
+  const session = [...sessions][0];
+  session.win.setBounds({ x: park.workArea.x + 40, y: park.workArea.y + 40, width: 802, height: 484 });
+  await until('the picture', async () => session.opened && (await js(session.win, 'window.ardpStats ? window.ardpStats.frames : 0')) >= 1);
+  // it starts out watching; the button in the title bar takes control
+  await click(session.win, 'mode');
+  await until('control', async () => session._control() && (await js(session.win, `document.body.classList.contains('controlling')`)));
+  await sleep(300);
 
-    const rect = hostService.host.sources()[0].active.rect;
-    const box = await js(session.win, `(() => { const r = document.getElementById('screen').getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; })()`);
-    const want = { x: Math.round(rect.x + 0.25 * (rect.width - 1)), y: Math.round(rect.y + 0.5 * (rect.height - 1)) };
-    const before = input.position();
-    let landed = false;
-    for (let attempt = 1; attempt <= 4 && !landed; attempt++) {
-      session.win.webContents.sendInputEvent({ type: 'mouseMove', x: Math.round(box.x + box.w * 0.25) + attempt, y: Math.round(box.y + box.h * 0.5) });
-      await sleep(200);
-      const at = input.position();
-      landed = Math.abs(at.x - want.x) <= 6 && Math.abs(at.y - want.y) <= 4;
-      log(`pointer through the wire: landed at (${at.x}, ${at.y}), expected about (${want.x}, ${want.y}) within display ${JSON.stringify(rect)}${landed ? '' : ' - retrying'}`);
-    }
-    session.win.close();
-    input.move(before.x, before.y);
-    await until('the launcher to return', () => sessions.size === 0 && launcher.isVisible());
-    if (!landed) throw new Error('the pointer did not land where the client pointed');
-  } finally {
-    delete process.env.ARDP_LOOPBACK_INPUT;
+  const rect = hostService.host.sources()[0].active.rect;
+  const box = await js(session.win, `(() => { const r = document.getElementById('screen').getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; })()`);
+  const want = { x: Math.round(rect.x + 0.25 * (rect.width - 1)), y: Math.round(rect.y + 0.5 * (rect.height - 1)) };
+  const before = input.position();
+  let landed = false;
+  for (let attempt = 1; attempt <= 4 && !landed; attempt++) {
+    session.win.webContents.sendInputEvent({ type: 'mouseMove', x: Math.round(box.x + box.w * 0.25) + attempt, y: Math.round(box.y + box.h * 0.5) });
+    await sleep(200);
+    const at = input.position();
+    landed = Math.abs(at.x - want.x) <= 6 && Math.abs(at.y - want.y) <= 4;
+    log(`pointer through the wire: landed at (${at.x}, ${at.y}), expected about (${want.x}, ${want.y}) within display ${JSON.stringify(rect)}${landed ? '' : ' - retrying'}`);
   }
+  session.win.close();
+  input.move(before.x, before.y);
+  await until('the launcher to return', () => sessions.size === 0 && launcher.isVisible());
+  if (!landed) throw new Error('the pointer did not land where the client pointed');
 
   const { KEYS } = require('ardp/src/app/host/keymap');
   // only key-ups are sent, and keys that act on release are left out
@@ -293,7 +291,7 @@ exports.runQuiet = async ({ app, hostService, vms, open, sessions }) => {
     // the front door
     const home = await loaded(open('home'));
     expect((await text(home, 'product-name')) === 'ARP' && (await text(home, 'product-meaning')) === 'Aesthetic Remote Protocol', 'the home window says ARP and what it stands for');
-    expect(await js(home, `!document.getElementById('open-rdp').disabled`), 'remote desktop and virtual machines can be opened');
+    expect(await js(home, `['open-rdp', 'open-vms'].every((id) => !document.getElementById(id).disabled)`), 'remote desktop and virtual machines can both be opened');
 
     // virtual machines
     await click(home, 'open-vms');
@@ -378,7 +376,34 @@ exports.runQuiet = async ({ app, hostService, vms, open, sessions }) => {
     await until('the desktop to open', () => session.opened);
     await until('the desktop picture', async () => (await frames(session.win)) >= 1);
     expect(session.opened.kind === 'desktop' && (await js(rdp, `document.getElementById('chooser').hidden`)), 'with no vm running it goes straight to the pc');
+
+    // this is the same computer, so it starts out watching, with a button to take control
+    const mode = () => js(session.win, `(() => { const b = document.getElementById('mode'); return b.hidden || b.disabled ? '' : b.textContent.trim(); })()`);
+    await until('the control button', mode);
+    expect(session.opened.control && !session._control() && (await mode()) === 'Take control', `looking at this same computer starts out watching: "${await mode()}"`);
+    await click(session.win, 'mode');
+    await until('control to be taken', () => session._control());
+    expect((await mode()) === 'Controlling' && (await js(session.win, `document.body.classList.contains('controlling')`)), 'one click on the title bar button takes control');
+    await click(session.win, 'mode');
+    await until('control to be given back', () => !session._control());
+    expect((await mode()) === 'Take control', 'and another click goes back to watching');
     await closeSession(session);
+
+    // asked to only watch, the other side never grants control; the button asks again for it
+    await js(rdp, `document.getElementById('control').click()`);
+    await fill(`127.0.0.1:${PORT}`);
+    await click(rdp, 'connect');
+    await until('the watching session', () => sessions.size === 1);
+    session = [...sessions][0];
+    await until('it to open', () => session.opened);
+    await until('its picture', async () => (await frames(session.win)) >= 1);
+    expect(!session.opened.control && hostService.host.list()[0].control === false, 'with the box unticked the host is told to give no control');
+    await until('the control button', mode);
+    await click(session.win, 'mode');
+    await until('control after asking again', () => session.opened && session.opened.control && session._control(), 20000);
+    expect(hostService.host.list()[0].control === true, 'taking control later asks the host again, and it agrees');
+    await closeSession(session);
+    await js(rdp, `document.getElementById('control').click()`);
 
     expect(hidden(), 'no window was ever shown');
     await vms.remove('quiet-vm');

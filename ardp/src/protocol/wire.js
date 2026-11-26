@@ -32,6 +32,11 @@ const T = Object.freeze({
   ACTION: 0x60,
 });
 
+// a connection has a direction and keeps it: the client asks and steers, the host shows.
+// a message that belongs to the other role ends the connection
+const FROM_CLIENT = new Set([T.HELLO, T.AUTH, T.OPEN, T.VIDEO_KEY, T.VIDEO_ACK, T.INPUT, T.ACTION]);
+const FROM_HOST = new Set([T.CHALLENGE, T.WELCOME, T.OPENED, T.WAIT, T.VIDEO_CONFIG, T.VIDEO_FRAME]);
+
 const EMPTY = Buffer.alloc(0);
 
 class ProtocolError extends Error {
@@ -135,6 +140,8 @@ module.exports = {
   MAX_MESSAGE,
   T,
   ProtocolError,
+  FROM_CLIENT,
+  FROM_HOST,
   Decoder,
   header,
   encode,

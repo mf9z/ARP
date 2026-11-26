@@ -20,6 +20,8 @@ Every message, in both directions:
 
 An empty payload is read as `{}`. Unknown message types and unknown JSON members are ignored, so either side can be newer than the other.
 
+**A connection has one direction.** The side that connected is the client for as long as the connection lives, and the other side is the host. A message marked C → H below may only come from the client, and one marked H → C only from the host. A client that receives a C → H message (HELLO, AUTH, OPEN, VIDEO_KEY, VIDEO_ACK, INPUT, ACTION) and a host that receives an H → C message (CHALLENGE, WELCOME, OPENED, WAIT, VIDEO_CONFIG, VIDEO_FRAME) must answer `ERROR bad_protocol` and close. There is no message that swaps the roles, and none may be added: a host must never be able to see or steer the computer that connected to it.
+
 ## Messages
 
 | Type | Name | Direction | Payload |
@@ -76,7 +78,7 @@ proof = HMAC-SHA256(key, "ardp1/" + role + clientNonce + hostNonce + fingerprint
 
 After WELCOME the client sends one OPEN. `source` picks an entry from `sources` (the first if absent); `display` picks one of its displays (the primary if absent). `codecs` lists the families the client can decode, any of `h264`, `vp8`, `vp9`. `quality` is `low`, `balanced` or `high`.
 
-The host answers OPENED, then VIDEO_CONFIG, then frames. `control` says whether the host will accept INPUT; it is false when the client asked for `viewOnly`, when the host only allows watching, and for a desktop shared with a client on the same machine.
+The host answers OPENED, then VIDEO_CONFIG, then frames. `control` says whether the host will accept INPUT; it is false when the client asked for `viewOnly` and when the host only allows watching. A client that wants control later closes and opens again without `viewOnly`. A client looking at its own machine should start out not sending INPUT, since the pointer would chase its own picture.
 
 A source serves one session at a time. A newer session takes over; the older one gets `CLOSE replaced`.
 

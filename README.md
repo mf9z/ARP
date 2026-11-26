@@ -6,7 +6,7 @@
 
 **Aesthetic Remote Protocol. Your computers, from anywhere, with nothing in the way.**
 
-Remote desktop and virtual machines today. Calling and screen sharing next.
+Remote desktop and virtual machines.
 
 [![Last Commit](https://img.shields.io/github/last-commit/mf9z/ARP)](https://github.com/mf9z/ARP/commits/main)
 [![Stars](https://img.shields.io/github/stars/mf9z/ARP?style=flat)](https://github.com/mf9z/ARP/stargazers)
