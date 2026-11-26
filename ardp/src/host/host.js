@@ -14,6 +14,11 @@ const { T } = wire;
 
 const HANDSHAKE_TIMEOUT = 15000;
 const MAX_CONNECTIONS = 16;
+const MAX_PER_ADDRESS = 4;
+const IDLE_AFTER_AUTH = 120000;
+// a stranger gets a few kilobytes; a client with the code gets room for a clipboard
+const LIMIT_STRANGER = 4096;
+const LIMIT_CLIENT = 4 * 1024 * 1024;
 const MAX_CLIPBOARD = 1024 * 1024;
 const FAILURES_BEFORE_LOCK = 5;
 
@@ -25,9 +30,12 @@ const b64 = (text, min, max) => {
 };
 
 class ArdpHost extends EventEmitter {
-  constructor({ identity, info, credential, sources, approve }) {
+  constructor({ identity, info, credential, sources, approve, lockout = true, local = false }) {
     super();
     this.approve = approve || null;
+    this.lockout = lockout;
+    this.local = local;
+    this._asking = new Set();
     this.identity = identity;
     this.info = info;
     this.credential = credential;
@@ -47,7 +55,7 @@ class ArdpHost extends EventEmitter {
     if (this.server) return Promise.reject(new Error('already listening'));
     return new Promise((resolve, reject) => {
       const server = tls.createServer(
-        { key: this.identity.key, cert: this.identity.cert, ALPNProtocols: [wire.ALPN], minVersion: 'TLSv1.2' },
+        { key: this.identity.key, cert: this.identity.cert, ALPNProtocols: [wire.ALPN], minVersion: 'TLSv1.2', handshakeTimeout: 10000 },
         (socket) => this._accept(socket),
       );
       server.on('tlsClientError', () => {});
@@ -80,7 +88,10 @@ class ArdpHost extends EventEmitter {
   }
 
   _accept(socket) {
-    if (this.connections.size >= MAX_CONNECTIONS) {
+    const address = tidyAddress(socket.remoteAddress);
+    const sameAddress = [...this.connections].filter((s) => s.address === address).length;
+    // one address cannot take every slot
+    if (this.connections.size >= MAX_CONNECTIONS || (!this.local && sameAddress >= MAX_PER_ADDRESS)) {
       socket.destroy();
       return;
     }
@@ -89,6 +100,7 @@ class ArdpHost extends EventEmitter {
   }
 
   _lockedFor(address, now = Date.now()) {
+    if (!this.lockout) return 0;
     const entry = this._failures.get(address);
     return entry && entry.until > now ? entry.until - now : 0;
   }
@@ -129,7 +141,8 @@ class HostSession {
     this._flowTimer = null;
     this._auth = null;
 
-    this.channel = new Channel(socket);
+    this.socket = socket;
+    this.channel = new Channel(socket, { limit: LIMIT_STRANGER });
     this.channel.on('message', (type, payload) => this._onMessage(type, payload));
     this.channel.on('close', () => this._cleanup());
     this._deadline = setTimeout(() => this.channel.fail('timeout', 'The handshake took too long.'), HANDSHAKE_TIMEOUT);
@@ -198,7 +211,8 @@ class HostSession {
     }
 
     const hostNonce = auth.randomNonce();
-    this._auth = { key: credential.key, ctx: { clientNonce, hostNonce, fingerprint: this.host.identity.fingerprint } };
+    const binding = auth.sessionBinding(this.socket);
+    this._auth = { key: credential.key, ctx: { clientNonce, hostNonce, fingerprint: this.host.identity.fingerprint, binding } };
     this.state = 'auth';
     this.channel.sendJson(T.CHALLENGE, {
       v: wire.VERSION,
@@ -227,6 +241,9 @@ class HostSession {
     clearTimeout(this._deadline);
     this.state = 'ready';
     this.host.sessions.add(this);
+    this.channel.setLimit(LIMIT_CLIENT);
+    // connected is not the same as doing something: open a source or go
+    this._deadline = setTimeout(() => this.end('timeout'), IDLE_AFTER_AUTH);
     this.channel.sendJson(T.WELCOME, {
       proof: auth.hostProof(key, ctx).toString('base64'),
       sources: this.host.sources().map((s) => s.describe()),
@@ -277,6 +294,7 @@ class HostSession {
   async _open(msg) {
     if (this.stream || this._opening) throw new wire.ProtocolError('a source is already open');
     this._opening = true;
+    clearTimeout(this._deadline);
     try {
       const sources = this.host.sources();
       const wanted = typeof msg.source === 'string' ? msg.source : null;
@@ -285,6 +303,9 @@ class HostSession {
 
       // someone at this computer gets to say yes or no first
       if (this.host.approve) {
+        // one question per address at a time, so the screen cannot be flooded with them
+        if (this.host._asking.has(this.address)) throw new ArdpError('denied', 'The other computer is already being asked.');
+        this.host._asking.add(this.address);
         const about = source.describe();
         this._asking = new AbortController();
         this.channel.sendJson(T.WAIT, { for: 'approval' });
@@ -293,12 +314,17 @@ class HostSession {
           this._asking.signal,
         );
         this._asking = null;
+        this.host._asking.delete(this.address);
         if (this.channel.closed) return;
-        if (!allowed) throw new ArdpError('denied', 'The other computer did not allow the connection.');
+        if (!allowed) {
+          // a no counts like a wrong code, so asking again and again locks the address out
+          this.host._recordFailure(this.address);
+          throw new ArdpError('denied', 'The other computer did not allow the connection.');
+        }
       }
 
       const stream = await source.open({
-        peer: { address: this.address, name: this.client.name, loopback: this.loopback },
+        peer: { address: this.address, name: this.client.name, loopback: this.loopback, local: this.host.local },
         display: msg.display === undefined ? null : msg.display,
         codecs: Array.isArray(msg.codecs) ? msg.codecs.filter((c) => typeof c === 'string').slice(0, 16) : [],
         quality: ['low', 'balanced', 'high'].includes(msg.quality) ? msg.quality : 'balanced',
@@ -345,7 +371,10 @@ class HostSession {
 
   _cleanup() {
     clearTimeout(this._deadline);
-    if (this._asking) this._asking.abort();
+    if (this._asking) {
+      this._asking.abort();
+      this.host._asking.delete(this.address);
+    }
     clearInterval(this._flowTimer);
     if (this.stream) {
       const stream = this.stream;

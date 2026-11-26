@@ -2,16 +2,18 @@
 
 const path = require('path');
 const { EventEmitter } = require('events');
+const { app } = require('electron');
 const { VmStore } = require('arp-vm');
 const { FrameSource } = require('ardp/src/app/host/frame-source');
 
 const CTRL_ALT_DEL = ['ControlLeft', 'AltLeft', 'Delete'];
 
 class VmService extends EventEmitter {
-  constructor({ dir, store }) {
+  constructor({ dir, store, allowControl }) {
     super();
+    this.allowControl = allowControl || (() => true);
     // ARP_FAKE_QEMU=1 swaps qemu for a stand-in that shows a test picture
-    if (!store && process.env.ARP_FAKE_QEMU === '1') store = require('arp-vm/dev/stand-in')();
+    if (!store && !app.isPackaged && process.env.ARP_FAKE_QEMU === '1') store = require('arp-vm/dev/stand-in')();
     this.store = new VmStore(path.join(dir, 'vms'), store);
     this.made = new Map();
     this.store.on('change', () => this.emit('change', this.state()));
@@ -64,6 +66,7 @@ class VmService extends EventEmitter {
       kind: 'vm',
       name: vm.name,
       state: () => vm.state,
+      allowControl: this.allowControl,
       // connecting to a vm that is off turns it on
       connect: async () => {
         await vm.start();

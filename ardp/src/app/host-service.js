@@ -12,7 +12,7 @@ const { NativeInput } = require('./host/input');
 
 const TUNNEL = /mullvad|wireguard|nordlynx|openvpn|proton|vpn|tailscale|zerotier|hamachi|^wgd|^tund|^tapd|^utun/i;
 const VIRTUAL = /vethernet|virtual|vmware|vbox|hyper-v|wsl|docker|loopback|bluetooth|^bridge|^veth|^virbr/i;
-const PRIVATE = /^(10.|192.168.|172.(1[6-9]|2d|3[01]).)/;
+const PRIVATE = /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/;
 
 function localAddresses() {
   const found = [];
@@ -47,7 +47,10 @@ class HostService extends EventEmitter {
   }
 
   async init() {
-    this.identity = await loadIdentity(path.join(this.dir, 'identity'), this.name);
+    this.identity = await loadIdentity(path.join(this.dir, 'identity'), this.name, {
+      seal: (text) => this.config.seal(text),
+      unseal: (text) => this.config.unseal(text),
+    });
 
     const settings = this.config.data.host;
     const stored = await this.config.unseal(settings.code);
@@ -70,8 +73,20 @@ class HostService extends EventEmitter {
       ...options,
       approve: (who, signal) => (this.approve && this.config.data.host.askFirst !== false ? this.approve(who, signal) : true),
     });
-    // a second listener on loopback only, for opening this computer's own vms
-    this.local = new ArdpHost(options);
+    // a second listener on loopback only, for opening this computer's own vms. it has
+    // its own secret that never leaves this process, serves vms and nothing else, and
+    // does not know the access code people are given
+    this.localCode = crypto.randomBytes(24).toString('hex');
+    const localSalt = crypto.randomBytes(16);
+    const localCredential = { salt: localSalt, key: await auth.deriveKey(this.localCode, localSalt) };
+    this.local = new ArdpHost({
+      identity: this.identity,
+      info: this.info,
+      credential: () => localCredential,
+      sources: () => this.extraSources(),
+      lockout: false,
+      local: true,
+    });
     for (const event of ['session', 'session-end', 'stream']) this.host.on(event, () => this._changed());
     this.host.on('error', (err) => {
       this.error = err.message;

@@ -6,7 +6,7 @@ const wire = require('./wire');
 const { T } = wire;
 
 class Channel extends EventEmitter {
-  constructor(socket, { pingInterval = 4000, idleTimeout = 15000 } = {}) {
+  constructor(socket, { pingInterval = 4000, idleTimeout = 15000, limit } = {}) {
     super();
     this.socket = socket;
     this.closed = false;
@@ -14,7 +14,7 @@ class Channel extends EventEmitter {
     this._lastRx = Date.now();
     this._error = null;
 
-    this._decoder = new wire.Decoder((type, payload) => this._onMessage(type, payload));
+    this._decoder = new wire.Decoder((type, payload) => this._onMessage(type, payload), limit);
 
     socket.setNoDelay(true);
     socket.on('data', (chunk) => {
@@ -40,6 +40,11 @@ class Channel extends EventEmitter {
       this.sendJson(T.PING, { t: Date.now() });
     }, pingInterval);
     if (this._timer.unref) this._timer.unref();
+  }
+
+  // the largest message this side will accept from now on
+  setLimit(bytes) {
+    this._decoder.limit = bytes;
   }
 
   get buffered() {
@@ -92,7 +97,8 @@ class Channel extends EventEmitter {
 
   _onMessage(type, payload) {
     if (type === T.PING) {
-      this.send(T.PONG, payload);
+      // a ping is a timestamp; anything bigger is someone trying to make us echo data
+      if (payload.length <= 64 && this.buffered < 65536) this.send(T.PONG, payload);
       return;
     }
     if (type === T.PONG) {

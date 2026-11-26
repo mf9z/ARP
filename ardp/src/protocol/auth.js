@@ -31,7 +31,8 @@ function deriveKey(code, salt, kdf = KDF) {
   const N = Number(kdf.N);
   const r = Number(kdf.r);
   const p = Number(kdf.p);
-  if (!(N >= 1024 && N <= 1 << 20) || !(r >= 1 && r <= 16) || !(p >= 1 && p <= 4)) {
+  // the other side picks these before proving anything, so only a narrow band is accepted
+  if (!(N >= 32768 && N <= 131072) || r !== 8 || p !== 1) {
     return Promise.reject(new Error('unreasonable key derivation parameters'));
   }
   return new Promise((resolve, reject) => {
@@ -46,13 +47,20 @@ function deriveKey(code, salt, kdf = KDF) {
 }
 
 // the proof covers the cert fingerprint, so someone in the middle can't relay it
-function proof(label, key, { clientNonce, hostNonce, fingerprint }) {
+// what both ends of one tls session, and nobody else, can compute. with it in the
+// proof, a relay holding a stolen host key still cannot pass a proof along
+function sessionBinding(socket) {
+  return socket.exportKeyingMaterial(32, 'EXPORTER-ardp-auth');
+}
+
+function proof(label, key, { clientNonce, hostNonce, fingerprint, binding }) {
   return crypto
     .createHmac('sha256', key)
     .update(`ardp1/${label}`)
     .update(clientNonce)
     .update(hostNonce)
     .update(normaliseFingerprint(fingerprint), 'utf8')
+    .update(binding)
     .digest();
 }
 
@@ -85,4 +93,5 @@ module.exports = {
   safeEqual,
   normaliseFingerprint,
   fingerprintOf,
+  sessionBinding,
 };

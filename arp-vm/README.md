@@ -19,8 +19,10 @@ computers that only connect.
 ## How it works
 
 1. A VM is a folder with a `vm.json` and a qcow2 disk made by `qemu-img`.
-2. Starting one runs QEMU with no window of its own. Its screen and its
-   control socket listen on this computer only.
+2. Starting one runs QEMU with no window of its own. Control goes over pipes
+   only ARP holds, so there is no control port for anything else to find. The
+   screen listens on this computer only, behind a random password set at
+   every start.
 3. `VmDisplay` reads the screen from there and hands changed rectangles to
    ardp, which encodes them like a desktop.
 4. Mouse and keys arrive as ardp input events and go into the guest: absolute
@@ -74,7 +76,10 @@ npx electron arp-launcher/scripts/vm-check.js --real
 
 - x86-64 guests only.
 - No sound and no clipboard between the guest and you.
-- The VM's screen socket has no password. It only listens on this computer,
-  but any program running here can reach it, so don't use it on a shared
-  machine yet.
+- A guest can reach network services that listen only on this computer
+  (127.0.0.1) through its own gateway address; that is how QEMU's built-in
+  networking works. ARP's own listeners all need a secret, other programs'
+  may not. Treat a VM running something you don't trust accordingly.
+- An installer image is always attached as a plain disc image, so a file that
+  is really a QEMU disk pointing at other files on this computer gets nowhere.
 - If the app is killed, its VMs keep running until you end the QEMU processes.

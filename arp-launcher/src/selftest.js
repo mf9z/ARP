@@ -376,6 +376,7 @@ exports.runQuiet = async ({ app, hostService, vms, open, sessions }) => {
     await until('the desktop session', () => sessions.size === 1);
     session = [...sessions][0];
     await until('the desktop to open', () => session.opened);
+    await until('the desktop picture', async () => (await frames(session.win)) >= 1);
     expect(session.opened.kind === 'desktop' && (await js(rdp, `document.getElementById('chooser').hidden`)), 'with no vm running it goes straight to the pc');
     await closeSession(session);
 

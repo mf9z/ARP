@@ -118,6 +118,7 @@ test('access codes ignore case, spaces and dashes', async () => {
   const b = await auth.deriveKey('k7qm2xwp9rdt', salt);
   assert.ok(a.equals(b));
   await assert.rejects(auth.deriveKey('x', salt, { name: 'scrypt', N: 1 << 30, r: 8, p: 1 }), /unreasonable/);
+  await assert.rejects(auth.deriveKey('x', salt, { name: 'scrypt', N: 1024, r: 1, p: 1 }), /unreasonable/);
 });
 
 test('input events are validated', () => {
@@ -303,4 +304,67 @@ test('the question is withdrawn when the client gives up', async (t) => {
   c.abort();
   await sleep(100);
   assert.equal(withdrawn, true);
+});
+
+test('a stranger cannot make the host buffer or echo much', async (t) => {
+  const { port, host } = await startHost(t);
+  const tls = require('tls');
+  const dial = () =>
+    new Promise((resolve) => {
+      const s = tls.connect({ host: '127.0.0.1', port, ALPNProtocols: [wire.ALPN], rejectUnauthorized: false }, () => resolve(s));
+      s.on('error', () => {});
+    });
+
+  // a message bigger than a stranger is allowed ends the connection
+  const big = await dial();
+  const gone = new Promise((resolve) => big.once('close', resolve));
+  big.write(wire.header(wire.T.HELLO, 1024 * 1024));
+  await gone;
+
+  // an oversized ping is not echoed
+  const pinger = await dial();
+  let back = 0;
+  pinger.on('data', (chunk) => (back += chunk.length));
+  pinger.write(wire.encode(wire.T.PING, Buffer.alloc(3000, 1)));
+  await sleep(200);
+  assert.ok(back < 200, `${back} bytes came back`);
+  pinger.destroy();
+
+  // one address cannot hold every slot
+  const held = [];
+  for (let i = 0; i < 4; i++) held.push(await dial());
+  const fifth = await dial();
+  await new Promise((resolve) => fifth.once('close', resolve));
+  for (const s of held) s.destroy();
+  await sleep(100);
+  assert.equal(host.connections.size, 0);
+});
+
+test('a proof is good for one tls session only', async (t) => {
+  const { port, identity } = await startHost(t);
+  const c = client(port);
+  await c.connect();
+  // the same code and certificate, but another session's binding, must not verify
+  const key = await auth.deriveKey(CODE, crypto.randomBytes(16));
+  const ctx = { clientNonce: crypto.randomBytes(32), hostNonce: crypto.randomBytes(32), fingerprint: identity.fingerprint };
+  const one = auth.clientProof(key, { ...ctx, binding: crypto.randomBytes(32) });
+  const two = auth.clientProof(key, { ...ctx, binding: crypto.randomBytes(32) });
+  assert.ok(!one.equals(two));
+  c.close();
+});
+
+test('asking twice at once from one address is refused, and a no counts against it', async (t) => {
+  const { port, host } = await startHost(t);
+  let release;
+  host.approve = () => new Promise((resolve) => (release = resolve));
+  const first = client(port);
+  await first.connect();
+  const waiting = first.open({}).catch((err) => err);
+  await sleep(100);
+  const second = client(port);
+  await second.connect();
+  await assert.rejects(second.open({}), (err) => err.code === 'denied');
+  release(false);
+  assert.equal((await waiting).code, 'denied');
+  assert.ok(host._failures.get('127.0.0.1').count >= 1);
 });

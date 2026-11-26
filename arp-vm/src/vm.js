@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const { spawn } = require('child_process');
 const { EventEmitter } = require('events');
 const qemu = require('./qemu');
@@ -9,29 +10,21 @@ const { VmDisplay } = require('./display');
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const lastLine = (text) => text.trim().split(/\r?\n/).pop() || '';
 
-async function connectWhenUp(port, alive, timeout = 20000) {
-  const end = Date.now() + timeout;
-  for (;;) {
-    try {
-      return await Qmp.connect(port);
-    } catch (err) {
-      if (!alive() || Date.now() > end) throw err;
-      await sleep(150);
-    }
-  }
-}
+// vnc only looks at the first eight characters of a password
+const screenPassword = () => crypto.randomBytes(6).toString('base64');
 
 // one virtual machine. states: stopped, starting, running, stopping
 class Vm extends EventEmitter {
   constructor(config, { binary, launcher } = {}) {
     super();
     this.config = config;
-    this.launcher = launcher || ((args) => spawn(binary.system, args, { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true }));
+    this.launcher = launcher || ((args) => spawn(binary.system, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }));
     this.state = 'stopped';
     this.error = '';
     this.child = null;
     this.qmp = null;
     this.vncPort = 0;
+    this.vncPassword = '';
     this._starting = null;
   }
 
@@ -65,8 +58,7 @@ class Vm extends EventEmitter {
     let stderr = '';
     try {
       const vnc = await qemu.freeVncDisplay();
-      const qmpPort = await qemu.freePort();
-      const child = this.launcher(qemu.buildArgs(this.config, { vnc, qmp: qmpPort }));
+      const child = this.launcher(qemu.buildArgs(this.config, { vnc }));
       this.child = child;
       if (child.stderr) {
         child.stderr.on('data', (data) => {
@@ -80,7 +72,13 @@ class Vm extends EventEmitter {
       died.catch(() => {});
       child.once('exit', () => this._exited(child));
 
-      this.qmp = await Promise.race([connectWhenUp(qmpPort, () => this.child === child), died]);
+      this.qmp = await Promise.race([Qmp.open(child.stdout, child.stdin), died]).catch(async (err) => {
+        // if qemu died, its own last words say more than a closed pipe does
+        const last = await Promise.race([died.catch((e) => e), sleep(500).then(() => null)]);
+        throw last || err;
+      });
+      this.vncPassword = screenPassword();
+      await Promise.race([this.qmp.execute('set_password', { protocol: 'vnc', password: this.vncPassword }), died]);
       this.vncPort = 5900 + vnc;
       this._set('running');
     } catch (err) {
@@ -121,7 +119,7 @@ class Vm extends EventEmitter {
 
   display(options) {
     if (this.state !== 'running') return Promise.reject(new Error(`${this.name} is not running.`));
-    return VmDisplay.connect(this.vncPort, options);
+    return VmDisplay.connect(this.vncPort, { ...options, password: this.vncPassword });
   }
 
   _tell(command) {
@@ -139,6 +137,7 @@ class Vm extends EventEmitter {
     if (this.qmp) this.qmp.close();
     this.qmp = null;
     this.vncPort = 0;
+    this.vncPassword = '';
     this._set('stopped');
   }
 

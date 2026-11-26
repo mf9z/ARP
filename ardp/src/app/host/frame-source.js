@@ -11,7 +11,7 @@ const failure = (err) => (err instanceof ArdpError ? err : new ArdpError('captur
 // connect() resolves with a display: { width, height, refresh(), input(event), close() }
 // that emits rect, frame, resize and close
 class FrameSource extends Source {
-  constructor({ id, kind, name, connect, state, actions = {} }) {
+  constructor({ id, kind, name, connect, state, allowControl, actions = {} }) {
     super();
     this.id = id;
     this.kind = kind;
@@ -19,14 +19,23 @@ class FrameSource extends Source {
     this.connect = connect;
     this.state = state || (() => undefined);
     this.actions = actions;
+    this.allowControl = allowControl || (() => true);
     this.active = null;
+    this._opening = null;
   }
 
   describe() {
     return { id: this.id, kind: this.kind, name: this.name, state: this.state(), displays: [] };
   }
 
-  async open(request) {
+  // one at a time, so two callers cannot both end up attached
+  open(request) {
+    const turn = (this._opening || Promise.resolve()).catch(() => {}).then(() => this._open(request));
+    this._opening = turn;
+    return turn;
+  }
+
+  async _open(request) {
     if (this.active) this.active.finish('replaced');
     let display;
     try {
@@ -62,7 +71,8 @@ class FrameStream extends SourceStream {
     const { fps, bitrate } = quality.plan(request.quality, display.width, display.height, 30);
     this.fps = fps;
     this.bitrate = bitrate;
-    const control = !request.viewOnly;
+    // on this computer the owner always controls their own vm; others only if the host allows it
+    const control = !request.viewOnly && (request.peer.local === true || source.allowControl());
     this.info = {
       source: source.id,
       kind: source.kind,
@@ -164,7 +174,7 @@ class FrameStream extends SourceStream {
   }
 
   action(name) {
-    const run = this.source.actions[name];
+    const run = Object.hasOwn(this.source.actions, name) ? this.source.actions[name] : null;
     if (this.closed || !this.info.control || !run) return;
     Promise.resolve()
       .then(() => run(this.display))

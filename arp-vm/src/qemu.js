@@ -7,10 +7,11 @@ const path = require('path');
 const exe = process.platform === 'win32' ? '.exe' : '';
 
 function searchDirs(hint) {
+  // the usual install folders come before PATH, which other programs can add to
   const dirs = hint ? [hint] : [];
-  dirs.push(...(process.env.PATH || '').split(path.delimiter));
   if (process.platform === 'win32') dirs.push('C:\\Program Files\\qemu', 'C:\\Program Files (x86)\\qemu');
   else dirs.push('/opt/homebrew/bin', '/usr/local/bin', '/usr/bin');
+  dirs.push(...(process.env.PATH || '').split(path.delimiter));
   return dirs.filter(Boolean);
 }
 
@@ -30,20 +31,25 @@ function accelerators() {
 // qemu splits option values on commas, so a real one is written twice
 const escape = (value) => String(value).replace(/,/g, ',,');
 
-function buildArgs(vm, { vnc, qmp }) {
+function buildArgs(vm, { vnc }) {
   const args = ['-name', `guest=${escape(vm.name)}`, '-machine', 'q35'];
   for (const accel of accelerators()) args.push('-accel', accel);
   args.push('-m', String(vm.memory), '-smp', String(vm.cpus));
   args.push('-drive', `file=${escape(vm.disk)},format=qcow2,media=disk`);
-  if (vm.iso) args.push('-drive', `file=${escape(vm.iso)},media=cdrom,readonly=on`);
+  // raw on purpose: left to guess, qemu would follow a disk image's link to other host files
+  if (vm.iso) args.push('-drive', `file=${escape(vm.iso)},format=raw,media=cdrom,readonly=on`);
   // disk first: an empty disk falls through to the installer, an installed one boots
   args.push('-boot', 'order=cd');
-  args.push('-vga', 'std', '-display', 'none', '-vnc', `127.0.0.1:${vnc}`);
+  // the screen only answers to the password set over the control channel after start
+  args.push('-vga', 'std', '-display', 'none', '-vnc', `127.0.0.1:${vnc},password=on`);
   // the tablet gives absolute pointer positions, which is what a remote pointer needs
   args.push('-usb', '-device', 'usb-tablet');
   args.push('-nic', 'user,model=e1000');
   args.push('-rtc', 'base=localtime');
-  args.push('-qmp', `tcp:127.0.0.1:${qmp},server=on,wait=off`);
+  // control runs over our own pipes to qemu. a tcp port would be open to every
+  // program here, and to the guest itself through its network gateway
+  args.push('-monitor', 'none', '-serial', 'none', '-parallel', 'none');
+  args.push('-chardev', 'stdio,id=mon', '-mon', 'chardev=mon,mode=control');
   return args;
 }
 

@@ -33,8 +33,9 @@
     "files": [
       "src/**/*",
       "package.json",
+      "!src/selftest.js",
       "!node_modules/ardp/{dist,docs,scripts,test}/**",
-      "!node_modules/arp-vm/test/**"
+      "!node_modules/arp-vm/{dev,test}/**"
     ],
     "asarUnpack": [
       "node_modules/@nut-tree-fork/**/*"

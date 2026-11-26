@@ -9,8 +9,8 @@ const WHEEL = { up: 8, down: 16, left: 32, right: 64 };
 const NOTCH = 100;
 
 class VmDisplay extends EventEmitter {
-  static async connect(port, { fps = 30, host = '127.0.0.1' } = {}) {
-    const rfb = new Rfb();
+  static async connect(port, { fps = 30, host = '127.0.0.1', password = '' } = {}) {
+    const rfb = new Rfb({ password });
     await rfb.connect(port, host);
     return new VmDisplay(rfb, fps);
   }

@@ -46,6 +46,8 @@ class Encoder extends EventEmitter {
       },
     });
     const contents = this.win.webContents;
+    this.contents = contents;
+    Encoder.capturing.add(contents);
     const ipc = contents.ipc;
 
     const ready = new Promise((resolve, reject) => {
@@ -73,7 +75,8 @@ class Encoder extends EventEmitter {
     this.height = info.height;
 
     ipc.on('capture:frame', (_e, meta, data) => {
-      if (!this.closed) this.emit('frame', meta, Buffer.from(data.buffer, data.byteOffset, data.byteLength));
+      if (this.closed || !(data instanceof Uint8Array) || !meta) return;
+      this.emit('frame', { key: meta.key === true, timestamp: Number(meta.timestamp) || 0 }, Buffer.from(data.buffer, data.byteOffset, data.byteLength));
     });
     ipc.on('capture:stats', (_e, stats) => {
       this.stats = stats;
@@ -115,6 +118,7 @@ class Encoder extends EventEmitter {
     if (this.closed) return;
     this.closed = true;
     if (this._giveUp) this._giveUp(new ArdpError('capture_failed', 'The picture was stopped.'));
+    if (this.contents) Encoder.capturing.delete(this.contents);
     if (this.win && !this.win.isDestroyed()) this.win.destroy();
     this.win = null;
   }
@@ -123,5 +127,8 @@ class Encoder extends EventEmitter {
     if (!this.closed && this.win && !this.win.isDestroyed()) this.win.webContents.send(channel, ...args);
   }
 }
+
+// the only windows allowed to capture a screen
+Encoder.capturing = new Set();
 
 module.exports = { Encoder };

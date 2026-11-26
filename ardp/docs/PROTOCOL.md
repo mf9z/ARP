@@ -59,16 +59,18 @@ Both sides know an **access code**. It is normalised by upper-casing and removin
 
 ```
 key   = scrypt(normalise(code), salt, N = 32768, r = 8, p = 1, 32 bytes)
-proof = HMAC-SHA256(key, "ardp1/" + role + clientNonce + hostNonce + fingerprint)
+proof = HMAC-SHA256(key, "ardp1/" + role + clientNonce + hostNonce + fingerprint + binding)
 ```
 
-`role` is `client` in AUTH and `host` in WELCOME. `fingerprint` is the hex fingerprint **of the certificate each side saw on this connection** (the host uses its own). That binds the proof to the TLS channel: a machine in the middle has to present a different certificate, so a proof it relays does not verify.
+`role` is `client` in AUTH and `host` in WELCOME. `fingerprint` is the hex fingerprint **of the certificate each side saw on this connection** (the host uses its own). That binds the proof to the certificate: a machine in the middle has to present a different one, so a proof it relays does not verify. `binding` is 32 bytes of TLS exported keying material (RFC 5705, label `EXPORTER-ardp-auth`, no context), which only the two ends of this one TLS session can compute, so even a relay holding a stolen copy of the host's key cannot pass a proof along.
 
 - The host compares the client proof in constant time. On a mismatch it replies `ERROR auth_failed` and closes. After 5 failures from one address, that address is refused (`rate_limited`) for 30 seconds, doubling up to 10 minutes.
 - The client must verify the host proof before trusting anything else on the connection. A host that accepts the client without proving the code is not the real host (`host_untrusted`).
 - The client remembers the fingerprint per `host:port` after the first successful connection. If it differs later, the person is asked before the code proof is sent.
-- A client must refuse scrypt parameters outside `1024 ≤ N ≤ 2^20`, `r ≤ 16`, `p ≤ 4`.
-- The host gives up on a connection that has not authenticated within 15 seconds.
+- A client must refuse scrypt parameters outside `32768 ≤ N ≤ 131072`, `r = 8`, `p = 1`: the host names them before it has proved anything.
+- The host gives up on a connection that has not authenticated within 15 seconds, and on an authenticated one that has not sent OPEN within 120 seconds.
+- The host accepts at most 16 connections, 4 from one address.
+- Until a peer has proved itself it gets little room: a host reads messages of at most 4 KiB before authentication and 4 MiB after; a client reads at most 256 KiB before it has verified the host and 32 MiB after.
 
 ## Opening a source
 
@@ -78,7 +80,7 @@ The host answers OPENED, then VIDEO_CONFIG, then frames. `control` says whether 
 
 A source serves one session at a time. A newer session takes over; the older one gets `CLOSE replaced`.
 
-**Asking first.** A host may ask its user before letting a session open. It sends WAIT, then OPENED if the answer is yes or `ERROR denied` if it is no or nobody answers. A client should wait at least 90 seconds for OPENED. If the client hangs up meanwhile, the host withdraws the question.
+**Asking first.** A host may ask its user before letting a session open. It sends WAIT, then OPENED if the answer is yes or `ERROR denied` if it is no or nobody answers. A client should wait at least 90 seconds for OPENED. If the client hangs up meanwhile, the host withdraws the question. Only one question per address is open at a time (a second OPEN from the same address is denied at once), and a no counts as a failed attempt toward the lockout.
 
 **Virtual machines.** Opening a virtual machine that is off switches it on. It can be controlled from the same machine too, since its input goes to the guest and not to the host's desktop.
 
@@ -117,7 +119,7 @@ Each INPUT message is one event:
 
 ## Liveness
 
-Each side sends PING every 4 seconds and answers PING with PONG. A side that receives nothing for 15 seconds closes the connection.
+Each side sends PING every 4 seconds and answers PING with PONG. A PING payload larger than 64 bytes is ignored. A side that receives nothing for 15 seconds closes the connection.
 
 ## Codes
 

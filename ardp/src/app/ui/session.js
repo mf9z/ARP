@@ -309,6 +309,7 @@
       case 'viewonly':
         releaseAll();
         viewOnly = !viewOnly;
+        api.viewOnly(viewOnly);
         refreshMode();
         break;
       case 'display':

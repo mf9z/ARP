@@ -3,7 +3,7 @@
 const os = require('os');
 const path = require('path');
 const { pathToFileURL } = require('url');
-const { app, BrowserWindow, ipcMain, Menu, Tray, dialog, clipboard, protocol, net, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, Tray, dialog, clipboard, protocol, net, shell, session } = require('electron');
 const product = require('ardp/src/common/product');
 const { parseAddress, formatAddress } = require('ardp/src/common/address');
 const { describe } = require('ardp/src/common/messages');
@@ -11,13 +11,15 @@ const { ArdpClient } = require('ardp/src/client/client');
 const { Config } = require('ardp/src/app/config');
 const { HostService } = require('ardp/src/app/host-service');
 const { Session } = require('ardp/src/app/session');
+const { Encoder } = require('ardp/src/app/host/encoder');
 const { VmService } = require('./vm-service');
 
 const argv = process.argv.slice(1);
 const startHidden = argv.includes('--hidden');
 // --selftest-vm tests the vm path with a stand-in for qemu, without ever showing a window
-const quiet = argv.includes('--selftest-vm');
-const selftest = quiet || argv.includes('--selftest');
+// the self-tests exist only when run from source, never in an installed copy
+const quiet = !app.isPackaged && argv.includes('--selftest-vm');
+const selftest = quiet || (!app.isPackaged && argv.includes('--selftest'));
 if (quiet) process.env.ARP_FAKE_QEMU = '1';
 
 const ARDP = path.dirname(require.resolve('ardp/package.json'));
@@ -94,9 +96,13 @@ function main() {
   async function approve(who, signal) {
     if (quiet) return true;
     const what = who.kind === 'vm' ? `the virtual machine "${who.sourceName}"` : 'this computer';
+    const name = String(who.name || '')
+      .replace(/[^\x20-\x7e\u00a0-\u200d\u2010-\u2027\u2030-\u2065\u2070-\uffff]/g, '')
+      .slice(0, 40);
     const { response } = await ask(null, {
       type: 'question',
-      message: `${who.name || 'A computer'} (${who.address}) wants to ${who.viewOnly ? 'watch' : 'use'} ${what}.`,
+      // the name is whatever the caller says it is, so it is shown as a quote after the address
+      message: `A computer at ${who.address}${name ? ` calling itself "${name}"` : ''} wants to ${who.viewOnly ? 'watch' : 'use'} ${what}.`,
       detail: `They already entered the access code. If nobody answers in ${ASK_SECONDS} seconds the answer is no.`,
       buttons: ['Allow', 'Deny'],
       signal: AbortSignal.any([signal, AbortSignal.timeout(ASK_SECONDS * 1000)]),
@@ -292,6 +298,7 @@ function main() {
     // the other computer has a vm running: ask whether to open that or the pc itself
     const live = (s) => s.kind === 'vm' && (s.state === 'running' || s.state === 'starting');
     if (!target.source && client.sources.some(live)) {
+      if (choosing) choosing.client.abort();
       choosing = { client, target, start };
       const sources = client.sources.slice(0, 32).map((s) => ({
         id: String(s.id),
@@ -320,7 +327,7 @@ function main() {
 
   async function openVm(id) {
     const port = await hostService.localPort();
-    return connect({ address: `127.0.0.1:${port}/vm:${id}`, code: hostService.code, quality: 'high' }, { local: true });
+    return connect({ address: `127.0.0.1:${port}/vm:${id}`, code: hostService.localCode, quality: 'high' }, { local: true });
   }
 
   function startSession({ target, client, dial, options, local }) {
@@ -343,6 +350,29 @@ function main() {
   }
 
   function registerIpc() {
+    // every channel answers only to the window it belongs to. a window showing
+    // another computer's picture must never be able to ask for the access code
+    const OWNERS = [
+      ['home:', ['home']],
+      ['vm:open', ['vms', 'rdp']],
+      ['vm:', ['vms']],
+      ['launcher:', ['rdp']],
+      ['host:', ['rdp']],
+      ['app:', ['rdp']],
+    ];
+    const guard = (channel, fn) => {
+      const owners = OWNERS.find(([prefix]) => channel.startsWith(prefix))[1];
+      return (event, ...args) => {
+        const ok = owners.some((name) => {
+          const win = windows[name];
+          return win && !win.isDestroyed() && event.sender === win.webContents && event.senderFrame && event.senderFrame.parent === null;
+        });
+        return ok ? fn(event, ...args) : undefined;
+      };
+    };
+    const handle = (channel, fn) => ipcMain.handle(channel, guard(channel, fn));
+    const listen = (channel, fn) => ipcMain.on(channel, guard(channel, fn));
+
     ipcMain.on('window:action', (event, action) => {
       const win = BrowserWindow.fromWebContents(event.sender);
       if (!win) return;
@@ -359,42 +389,52 @@ function main() {
       if (win.ardpReveal) win.ardpReveal();
     });
 
-    ipcMain.handle('home:state', () => homeState());
-    ipcMain.on('home:open', (_e, name) => {
+    handle('home:state', () => homeState());
+    listen('home:open', (_e, name) => {
       if (name === 'rdp' || name === 'vms') open(name);
     });
 
-    ipcMain.on('home:get-qemu', () => shell.openExternal('https://www.qemu.org/download/'));
+    listen('home:get-qemu', () => shell.openExternal('https://www.qemu.org/download/'));
 
-    ipcMain.handle('launcher:state', () => rdpState());
-    ipcMain.handle('launcher:connect', (_e, request) => connect(request || {}));
-    ipcMain.on('launcher:cancel', () => {
+    handle('launcher:state', () => rdpState());
+    handle('launcher:connect', (_e, request) => connect(request || {}));
+    listen('launcher:cancel', () => {
       if (dialing) dialing.abort();
     });
-    ipcMain.handle('launcher:choose', (_e, id) => choose(id));
-    ipcMain.handle('launcher:forget', (_e, address) => {
+    handle('launcher:choose', (_e, id) => choose(id));
+    handle('launcher:forget', (_e, address) => {
       const client = config.data.client;
       client.recent = (Array.isArray(client.recent) ? client.recent : []).filter((r) => r && r.address !== address);
       config.save();
       return rdpState();
     });
 
-    ipcMain.handle('host:set', async (_e, change) => {
+    handle('host:set', async (_e, change) => {
       try {
         if (typeof change.enabled === 'boolean') await hostService.setEnabled(change.enabled);
         if (typeof change.allowControl === 'boolean') hostService.setAllowControl(change.allowControl);
-        if (typeof change.askFirst === 'boolean') hostService.setAskFirst(change.askFirst);
+        if (change.askFirst === true) hostService.setAskFirst(true);
+        if (change.askFirst === false && hostService.state().askFirst) {
+          // lowering the guard is confirmed here, where a web page cannot click
+          const { response } = await ask(windows.rdp, {
+            type: 'warning',
+            message: 'Let computers connect without asking?',
+            detail: 'Anyone with the access code will be able to use this computer without a question on this screen first.',
+            buttons: ['Stop asking', 'Keep asking'],
+          });
+          if (response === 0) hostService.setAskFirst(false);
+        }
         if (change.port !== undefined) await hostService.setPort(Number(change.port));
         return { ok: true, host: hostService.state() };
       } catch (err) {
         return { ok: false, text: err.message, host: hostService.state() };
       }
     });
-    ipcMain.handle('host:new-code', async () => {
+    handle('host:new-code', async () => {
       await hostService.newCode();
       return hostService.state();
     });
-    ipcMain.on('host:disconnect', (_e, id) => hostService.disconnect(Number.isInteger(id) ? id : undefined));
+    listen('host:disconnect', (_e, id) => hostService.disconnect(Number.isInteger(id) ? id : undefined));
 
     const vmCall = async (run) => {
       try {
@@ -404,11 +444,11 @@ function main() {
         return { ok: false, text: err.message, vms: vms.state() };
       }
     };
-    ipcMain.handle('vm:state', () => vms.state());
-    ipcMain.handle('vm:create', (_e, spec) => vmCall(() => vms.create(spec || {})));
-    ipcMain.handle('vm:start', (_e, id) => vmCall(() => vms.start(id)));
-    ipcMain.handle('vm:stop', (_e, id, force) => vmCall(() => vms.stop(id, force === true)));
-    ipcMain.handle('vm:remove', async (_e, id) => {
+    handle('vm:state', () => vms.state());
+    handle('vm:create', (_e, spec) => vmCall(() => vms.create(spec || {})));
+    handle('vm:start', (_e, id) => vmCall(() => vms.start(id)));
+    handle('vm:stop', (_e, id, force) => vmCall(() => vms.stop(id, force === true)));
+    handle('vm:remove', async (_e, id) => {
       const vm = vms.state().vms.find((v) => v.id === id);
       if (!vm) return { ok: false, vms: vms.state() };
       const { response } = await ask(windows.vms, {
@@ -420,14 +460,14 @@ function main() {
       if (response !== 0) return { ok: false, cancelled: true, vms: vms.state() };
       return vmCall(() => vms.remove(id));
     });
-    ipcMain.handle('vm:open', async (_e, id) => {
+    handle('vm:open', async (_e, id) => {
       try {
         return await openVm(String(id));
       } catch (err) {
         return { ok: false, text: err.message };
       }
     });
-    ipcMain.handle('vm:browse', async () => {
+    handle('vm:browse', async () => {
       const picked = await dialog.showOpenDialog(windows.vms, {
         title: 'Choose an installer',
         filters: [{ name: 'Disc images', extensions: ['iso', 'img'] }],
@@ -436,8 +476,8 @@ function main() {
       return picked.canceled ? '' : picked.filePaths[0];
     });
 
-    ipcMain.on('app:copy', (_e, text) => clipboard.writeText(String(text || '').slice(0, 4096)));
-    ipcMain.handle('app:start-at-login', (_e, on) => {
+    listen('app:copy', (_e, text) => clipboard.writeText(String(text || '').slice(0, 4096)));
+    handle('app:start-at-login', (_e, on) => {
       config.data.app.startAtLogin = !!on;
       config.save();
       if (app.isPackaged) app.setLoginItemSettings({ openAtLogin: !!on, args: ['--hidden'] });
@@ -477,11 +517,17 @@ function main() {
     }
     if (process.platform === 'win32') app.setAppUserModelId('app.arp.desktop');
 
+    // nothing may use a camera, microphone, screen or anything else, except the
+    // hidden windows that capture a screen for a session
+    const mayCapture = (contents, permission) => (permission === 'media' || permission === 'display-capture') && !!contents && Encoder.capturing.has(contents);
+    session.defaultSession.setPermissionRequestHandler((contents, permission, done) => done(mayCapture(contents, permission)));
+    session.defaultSession.setPermissionCheckHandler((contents, permission) => mayCapture(contents, permission));
+
     protocol.handle('ardp-ui', (request) => net.fetch(pathToFileURL(path.join(KIT, path.basename(new URL(request.url).pathname))).toString()));
 
     const dir = app.getPath('userData');
     config = new Config(dir);
-    vms = new VmService({ dir });
+    vms = new VmService({ dir, allowControl: () => config.data.host.allowControl !== false });
     hostService = new HostService({ config, dir, version: app.getVersion(), extraSources: () => vms.sources(), approve });
     registerIpc();
     try {

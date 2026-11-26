@@ -15,6 +15,19 @@ const slug = (name) =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
 
+// an installer has to be a real file on this computer, given by its full path
+function installer(file) {
+  const iso = String(file || '').trim();
+  if (!iso) return '';
+  const local = path.isAbsolute(iso) && !/^[\\/]{2}/.test(iso) && !iso.includes('://');
+  let isFile = false;
+  try {
+    isFile = local && fs.statSync(iso).isFile();
+  } catch {}
+  if (!isFile) throw new Error('The installer file was not found.');
+  return iso;
+}
+
 const within = (value, min, max, what) => {
   const n = Number(value);
   if (!Number.isInteger(n) || n < min || n > max) throw new Error(`${what} must be between ${min} and ${max}.`);
@@ -54,8 +67,7 @@ class VmStore extends EventEmitter {
     memory = within(memory, 256, 262144, 'Memory');
     cpus = within(cpus, 1, 64, 'Processors');
     diskGb = within(diskGb, 1, 4096, 'Disk size');
-    iso = String(iso || '').trim();
-    if (iso && !fs.existsSync(iso)) throw new Error('The installer file was not found.');
+    iso = installer(iso);
 
     const home = path.join(this.dir, id);
     const config = { id, name, memory, cpus, iso, disk: path.join(home, 'disk.qcow2'), created: new Date().toISOString() };
@@ -76,10 +88,7 @@ class VmStore extends EventEmitter {
     const next = { ...vm.config };
     if (changes.memory !== undefined) next.memory = within(changes.memory, 256, 262144, 'Memory');
     if (changes.cpus !== undefined) next.cpus = within(changes.cpus, 1, 64, 'Processors');
-    if (changes.iso !== undefined) {
-      next.iso = String(changes.iso || '').trim();
-      if (next.iso && !fs.existsSync(next.iso)) throw new Error('The installer file was not found.');
-    }
+    if (changes.iso !== undefined) next.iso = installer(changes.iso);
     vm.config = next;
     this._save(next);
     this.emit('change');
@@ -110,8 +119,22 @@ class VmStore extends EventEmitter {
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       try {
-        const config = JSON.parse(fs.readFileSync(path.join(this.dir, entry.name, 'vm.json'), 'utf8'));
-        if (config && config.id === entry.name && config.name && config.disk) this._add(config);
+        const saved = JSON.parse(fs.readFileSync(path.join(this.dir, entry.name, 'vm.json'), 'utf8'));
+        if (!saved || saved.id !== entry.name || !NAME.test(String(saved.name))) continue;
+        let iso = '';
+        try {
+          iso = installer(saved.iso);
+        } catch {}
+        // the disk is always the one in the vm's own folder, whatever the file says
+        this._add({
+          id: entry.name,
+          name: String(saved.name),
+          memory: within(saved.memory, 256, 262144, 'Memory'),
+          cpus: within(saved.cpus, 1, 64, 'Processors'),
+          iso,
+          disk: path.join(this.dir, entry.name, 'disk.qcow2'),
+          created: String(saved.created || ''),
+        });
       } catch {}
     }
   }

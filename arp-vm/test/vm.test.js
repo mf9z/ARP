@@ -4,7 +4,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
+const net = require('net');
 const path = require('path');
+const { PassThrough } = require('stream');
 const { spawn } = require('child_process');
 
 const { VmStore, Vm, VmDisplay, Qmp, buildArgs } = require('../src');
@@ -15,7 +17,11 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const once = (emitter, event) => new Promise((resolve) => emitter.once(event, resolve));
 const fakeQemu = path.join(__dirname, '..', 'dev', 'fake-qemu.js');
 const launcher = (env = {}) => (args) =>
-  spawn(process.execPath, [fakeQemu, ...args], { stdio: ['ignore', 'ignore', 'pipe'], env: { ...process.env, ...env } });
+  spawn(process.execPath, [fakeQemu, ...args], { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...env } });
+const qmpTo = (port) => {
+  const socket = net.connect(port, '127.0.0.1');
+  return Qmp.open(socket, socket).then((qmp) => Object.assign(qmp, { hangUp: () => socket.destroy() }));
+};
 
 async function fakeWithDisplay(t, options) {
   const fake = await startFake(options);
@@ -140,8 +146,8 @@ test('every key has a scancode and a keysym', () => {
 
 test('a resolution change is reported', async (t) => {
   const { fake, display } = await fakeWithDisplay(t);
-  const qmp = await Qmp.connect(fake.qmpPort);
-  t.after(() => qmp.close());
+  const qmp = await qmpTo(fake.qmpPort);
+  t.after(() => qmp.hangUp());
   display.refresh();
   await once(display, 'frame');
   await qmp.execute('x-fake-resize', { width: 800, height: 600 });
@@ -153,7 +159,8 @@ test('a resolution change is reported', async (t) => {
 test('qmp: commands, errors and events', async (t) => {
   const fake = await startFake();
   t.after(() => fake.close());
-  const qmp = await Qmp.connect(fake.qmpPort);
+  const qmp = await qmpTo(fake.qmpPort);
+  t.after(() => qmp.hangUp());
   assert.equal((await qmp.execute('query-status')).status, 'running');
   await assert.rejects(qmp.execute('make-coffee'), /has not been found/);
   const event = once(qmp, 'event');
@@ -164,18 +171,20 @@ test('qmp: commands, errors and events', async (t) => {
 });
 
 test('qemu arguments', () => {
-  const args = buildArgs({ name: 'a,b', memory: 4096, cpus: 4, disk: 'C:\\vms\\x,y\\disk.qcow2', iso: 'D:\\win.iso' }, { vnc: 12, qmp: 4444 });
+  const args = buildArgs({ name: 'a,b', memory: 4096, cpus: 4, disk: 'C:\\vms\\x,y\\disk.qcow2', iso: 'D:\\win.iso' }, { vnc: 12 });
   const after = (flag) => args[args.indexOf(flag) + 1];
   assert.equal(after('-name'), 'guest=a,,b');
   assert.equal(after('-m'), '4096');
   assert.equal(after('-smp'), '4');
-  assert.equal(after('-vnc'), '127.0.0.1:12');
+  assert.equal(after('-vnc'), '127.0.0.1:12,password=on');
+  assert.ok(!args.includes('-qmp') && !args.some((a) => a.startsWith('tcp:')), 'no control port');
+  assert.equal(after('-chardev'), 'stdio,id=mon');
+  assert.equal(after('-mon'), 'chardev=mon,mode=control');
   assert.equal(after('-display'), 'none');
-  assert.equal(after('-qmp'), 'tcp:127.0.0.1:4444,server=on,wait=off');
   assert.ok(args.includes('file=C:\\vms\\x,,y\\disk.qcow2,format=qcow2,media=disk'));
-  assert.ok(args.includes('file=D:\\win.iso,media=cdrom,readonly=on'));
+  assert.ok(args.includes('file=D:\\win.iso,format=raw,media=cdrom,readonly=on'));
   assert.ok(args.includes('usb-tablet'));
-  assert.ok(!buildArgs({ name: 'a', memory: 1, cpus: 1, disk: 'd' }, { vnc: 1, qmp: 1 }).some((a) => a.includes('cdrom')));
+  assert.ok(!buildArgs({ name: 'a', memory: 1, cpus: 1, disk: 'd' }, { vnc: 1 }).some((a) => a.includes('cdrom')));
 });
 
 test('a vm starts, shows its screen, and shuts down', async () => {
@@ -188,6 +197,9 @@ test('a vm starts, shows its screen, and shuts down', async () => {
   const display = await vm.display();
   assert.deepEqual([display.width, display.height], [320, 200]);
   display.close();
+  assert.equal(vm.vncPassword.length, 8);
+  await assert.rejects(VmDisplay.connect(vm.vncPort), /wants a password/);
+  await assert.rejects(VmDisplay.connect(vm.vncPort, { password: 'guessing' }), /Authentication failed/);
 
   const seen = await vm.qmp.execute('x-fake-state');
   assert.ok(seen.argv.includes('-vnc') && seen.argv.includes('guest=One'));
@@ -253,4 +265,63 @@ test('without qemu nothing can be created', async (t) => {
   const store = new VmStore(tempDir(t), { binary: null });
   assert.equal(store.available, false);
   await assert.rejects(store.create({ name: 'x' }), /QEMU is not installed/);
+});
+
+test('the screen password: right one in, wrong one out, and a screen without one is not trusted', async (t) => {
+  const fake = await startFake({ locked: true });
+  t.after(() => fake.close());
+  await assert.rejects(VmDisplay.connect(fake.vncPort, { password: 'anything' }), /Authentication failed/);
+  fake.state.password = 'Zx81+abc';
+  const display = await VmDisplay.connect(fake.vncPort, { password: 'Zx81+abc' });
+  assert.equal(display.width, 320);
+  display.close();
+
+  const open = await startFake();
+  t.after(() => open.close());
+  await assert.rejects(VmDisplay.connect(open.vncPort, { password: 'Zx81+abc' }), /did not ask for its password/);
+});
+
+test('a screen that reports an absurd size is refused', async (t) => {
+  const fake = await startFake({ width: 60000, height: 60000 });
+  t.after(() => fake.close());
+  await assert.rejects(VmDisplay.connect(fake.vncPort), /impossible screen size/);
+});
+
+test('junk on the control channel is ignored, not fatal', async () => {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const opening = Qmp.open(input, output);
+  input.write('null\n42\n"text"\n[1]\nnot json\n{"QMP":{}}\n{"QMP":{}}\n');
+  const asked = JSON.parse((await once(output, 'data')).toString());
+  assert.equal(asked.execute, 'qmp_capabilities');
+  input.write(`{"return":{},"id":${asked.id}}\n{"event":null}\n`);
+  const qmp = await opening;
+  const closed = once(qmp, 'close');
+  input.write('x'.repeat(1024 * 1024 + 10));
+  await closed;
+  assert.equal(qmp.closed, true);
+});
+
+test('an installer must be a real local file given by its full path', async (t) => {
+  const dir = tempDir(t);
+  const store = new VmStore(dir, { binary: null, launcher: launcher(), makeDisk: async (file) => fs.writeFileSync(file, '') });
+  const iso = path.join(dir, 'real.iso');
+  fs.writeFileSync(iso, 'x');
+  for (const bad of ['real.iso', dir, '\\\\server\\share\\x.iso', '//server/share/x.iso', 'http://example.com/x.iso']) {
+    await assert.rejects(store.create({ name: 'Bad', iso: bad }), /not found/, bad);
+  }
+  const vm = await store.create({ name: 'Good', iso });
+  assert.equal(vm.config.iso, iso);
+});
+
+test('paths in a tampered vm.json are not believed', async (t) => {
+  const dir = tempDir(t);
+  const options = { binary: null, launcher: launcher(), makeDisk: async (file) => fs.writeFileSync(file, '') };
+  await new VmStore(dir, options).create({ name: 'Mine' });
+  const file = path.join(dir, 'mine', 'vm.json');
+  const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+  fs.writeFileSync(file, JSON.stringify({ ...saved, disk: 'C:\\Windows\\win.ini', iso: 'relative.iso', memory: 512 }));
+  const vm = new VmStore(dir, options).get('mine');
+  assert.equal(vm.config.disk, path.join(dir, 'mine', 'disk.qcow2'));
+  assert.equal(vm.config.iso, '');
 });

@@ -70,8 +70,9 @@ function parseJson(payload) {
 }
 
 class Decoder {
-  constructor(onMessage) {
+  constructor(onMessage, limit = MAX_MESSAGE) {
     this.onMessage = onMessage;
+    this.limit = limit;
     this.chunks = [];
     this.size = 0;
   }
@@ -84,7 +85,7 @@ class Decoder {
       if (this.size < 5) return;
       if (this.chunks[0].length < 4) this._flatten();
       const length = this.chunks[0].readUInt32BE(0);
-      if (length < 1 || length > MAX_MESSAGE) throw new ProtocolError(`invalid message length ${length}`);
+      if (length < 1 || length > this.limit) throw new ProtocolError(`invalid message length ${length}`);
       if (this.size < 4 + length) return;
       const message = this._take(4 + length);
       this.onMessage(message[4], message.subarray(5));

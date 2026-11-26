@@ -101,13 +101,23 @@ passes so text ends up sharp. The wire format is in
 
 - Everything is inside TLS. The host's certificate is made on first run.
 - Both sides prove they know the access code, and the proof is tied to the
-  certificate the client saw, so it can't be relayed by someone in the middle.
+  certificate the client saw and to that one TLS session, so it can't be
+  relayed by someone in the middle, not even with a stolen copy of the host's key.
 - A host's identity is remembered. If it changes you're asked before going on.
 - Five wrong codes lock that address out, for longer each time.
 - Someone at the host gets to allow or deny each connection, unless that is switched off.
 - Hosting is off until you turn it on. **New** replaces the code and
   disconnects everyone using the old one.
-- Saved codes are encrypted with the OS credential store.
+- Saved codes and the host's private key are encrypted with the OS credential
+  store.
+- View only is enforced on your side, whatever the other computer claims, and
+  the clipboard is only shared while you control and the session window is in
+  front.
+- Each window can only call the parts of the app that belong to it. A window
+  showing another computer's picture cannot read the access code or change
+  settings.
+- Strangers get a few kilobytes and 15 seconds; one address cannot take every
+  connection slot.
 
 ## Limits
 

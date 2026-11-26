@@ -35,9 +35,17 @@ class ArdpClient extends EventEmitter {
 
   async connect() {
     const socket = await this._dial();
-    this.fingerprint = auth.fingerprintOf(socket.getPeerCertificate(true).raw);
+    let binding;
+    try {
+      this.fingerprint = auth.fingerprintOf(socket.getPeerCertificate(true).raw);
+      binding = auth.sessionBinding(socket);
+    } catch (err) {
+      socket.destroy();
+      throw new ArdpError('bad_protocol', 'The other end is not an ARDP host.');
+    }
 
-    this.channel = new Channel(socket);
+    // until the other side has proved itself it gets little room
+    this.channel = new Channel(socket, { limit: 256 * 1024 });
     this.channel.on('message', (type, payload) => this._onMessage(type, payload));
     this.channel.on('close', (err) => this._onClose(err));
 
@@ -71,7 +79,7 @@ class ArdpClient extends EventEmitter {
       } catch (err) {
         throw new ArdpError('bad_protocol', err.message);
       }
-      const ctx = { clientNonce, hostNonce, fingerprint: this.fingerprint };
+      const ctx = { clientNonce, hostNonce, fingerprint: this.fingerprint, binding };
       this.channel.sendJson(T.AUTH, { proof: auth.clientProof(key, ctx).toString('base64') });
 
       const welcome = await this._expect(T.WELCOME);
@@ -82,6 +90,7 @@ class ArdpClient extends EventEmitter {
       }
       this.sources = Array.isArray(welcome.sources) ? welcome.sources : [];
       if (this.trust) this.trust.set(id, this.fingerprint);
+      this.channel.setLimit(wire.MAX_MESSAGE);
       this._connected = true;
       return { remote: this.remote, sources: this.sources, fingerprint: this.fingerprint };
     } catch (err) {

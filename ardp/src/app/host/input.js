@@ -55,7 +55,7 @@ class NativeInput {
   }
 
   key(code, down) {
-    const name = KEYS[code];
+    const name = Object.hasOwn(KEYS, code) ? KEYS[code] : null;
     if (!name) return;
     // only release what this session pressed
     if (down) this.keys.add(name);

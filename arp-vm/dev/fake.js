@@ -4,7 +4,9 @@
 // so everything above them can be tested without a real vm
 
 const net = require('net');
+const crypto = require('crypto');
 const { ByteQueue } = require('../src/bytes');
+const { answer } = require('../src/rfb');
 
 function picture(width, height, tick = 0) {
   const data = Buffer.alloc(width * height * 4);
@@ -39,6 +41,7 @@ function startVnc(state, port) {
   const server = net.createServer((socket) => {
     const queue = new ByteQueue();
     let stage = 'version';
+    let challenge = null;
     let tick = 0;
     socket.setNoDelay(true);
     socket.on('error', () => {});
@@ -98,12 +101,32 @@ function startVnc(state, port) {
       for (;;) {
         if (stage === 'version') {
           if (!queue.take(12)) return;
-          socket.write(Buffer.from([1, 1]));
+          socket.write(Buffer.from([1, state.locked ? 2 : 1]));
           stage = 'security';
         } else if (stage === 'security') {
           if (!queue.take(1)) return;
-          socket.write(Buffer.alloc(4));
-          stage = 'init';
+          if (state.locked) {
+            challenge = crypto.randomBytes(16);
+            socket.write(challenge);
+            stage = 'answer';
+          } else {
+            socket.write(Buffer.alloc(4));
+            stage = 'init';
+          }
+        } else if (stage === 'answer') {
+          const got = queue.take(16);
+          if (!got) return;
+          if (state.password && got.equals(answer(state.password, challenge))) {
+            socket.write(Buffer.alloc(4));
+            stage = 'init';
+          } else {
+            const why = Buffer.from('Authentication failed');
+            const head = Buffer.alloc(8);
+            head.writeUInt32BE(1, 0);
+            head.writeUInt32BE(why.length, 4);
+            socket.end(Buffer.concat([head, why]));
+            return;
+          }
         } else if (stage === 'init') {
           if (!queue.take(1)) return;
           const name = Buffer.from(state.name);
@@ -129,12 +152,12 @@ function startVnc(state, port) {
   return new Promise((resolve) => server.listen(port, '127.0.0.1', () => resolve(server)));
 }
 
-function startQmp(state, port, { onQuit } = {}) {
-  const server = net.createServer((socket) => {
+// the control channel, over any pair of streams: a socket in tests, stdin and stdout when run like qemu
+function serveQmp(state, input, output, { onQuit } = {}) {
+  {
     let text = '';
-    socket.setEncoding('utf8');
-    socket.on('error', () => {});
-    const send = (object) => socket.write(`${JSON.stringify(object)}\r\n`);
+    input.setEncoding('utf8');
+    const send = (object) => output.write(`${JSON.stringify(object)}\r\n`);
     send({ QMP: { version: { qemu: { major: 9, minor: 0, micro: 0 } }, capabilities: [] } });
 
     const commands = {
@@ -156,6 +179,10 @@ function startQmp(state, port, { onQuit } = {}) {
         setTimeout(() => onQuit && onQuit(), 10);
         return {};
       },
+      set_password: (args) => {
+        if (args.protocol === 'vnc') state.password = String(args.password);
+        return {};
+      },
       'x-fake-events': () => state.events.splice(0),
       'x-fake-state': () => ({ requests: state.requests, encodings: state.encodings, resets: state.resets, argv: process.argv.slice(2) }),
       'x-fake-resize': (args) => {
@@ -164,7 +191,7 @@ function startQmp(state, port, { onQuit } = {}) {
       },
     };
 
-    socket.on('data', (chunk) => {
+    input.on('data', (chunk) => {
       text += chunk;
       for (;;) {
         const end = text.indexOf('\n');
@@ -178,13 +205,24 @@ function startQmp(state, port, { onQuit } = {}) {
         else send({ error: { class: 'CommandNotFound', desc: `The command ${message.execute} has not been found` }, id: message.id });
       }
     });
+  }
+}
+
+function startQmp(state, port, options) {
+  const server = net.createServer((socket) => {
+    socket.on('error', () => {});
+    serveQmp(state, socket, socket, options);
   });
   return new Promise((resolve) => server.listen(port, '127.0.0.1', () => resolve(server)));
 }
 
-async function startFake({ vnc = 0, qmp = 0, width = 320, height = 200, extKeys = true, ignorePower = false, onQuit } = {}) {
-  const state = { width, height, name: 'fake', extKeys, ignorePower, events: [], encodings: [], requests: 0, resets: 0, resizeTo: null };
+async function startFake({ vnc = 0, qmp = 0, stdio = false, locked = false, width = 320, height = 200, extKeys = true, ignorePower = false, onQuit } = {}) {
+  const state = { width, height, name: 'fake', extKeys, ignorePower, locked, password: '', events: [], encodings: [], requests: 0, resets: 0, resizeTo: null };
   const vncServer = await startVnc(state, vnc);
+  if (stdio) {
+    serveQmp(state, process.stdin, process.stdout, { onQuit });
+    return { state, vncPort: vncServer.address().port };
+  }
   const qmpServer = await startQmp(state, qmp, { onQuit });
   return {
     state,

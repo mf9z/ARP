@@ -11,11 +11,30 @@ const TITLE_H = 32;
 const BORDER = 2;
 const MAX_CLIPBOARD = 1024 * 1024;
 
+const side = (n) => (Number.isInteger(n) && n >= 16 && n <= 16384 ? n : 0);
+
+// what the host says about the stream is data from the network: keep only what makes sense
+function tidy(opened) {
+  return {
+    source: String(opened.source || '').slice(0, 64),
+    kind: opened.kind === 'vm' ? 'vm' : 'desktop',
+    name: String(opened.name || '')
+      .replace(/[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '')
+      .slice(0, 64),
+    display: String(opened.display || '').slice(0, 32),
+    width: side(opened.width),
+    height: side(opened.height),
+    control: opened.control === true,
+    actions: (Array.isArray(opened.actions) ? opened.actions : []).filter((a) => typeof a === 'string').slice(0, 8),
+  };
+}
+
 class Session extends EventEmitter {
   constructor({ target, client, redial, options, local, quiet, icon }) {
     super();
     this.target = target;
     this.local = !!local;
+    this.viewOnly = !!options.viewOnly;
     this.address = formatAddress(target);
     this.redial = redial;
     this.options = options;
@@ -59,7 +78,7 @@ class Session extends EventEmitter {
       this._open();
     });
     ipc.on('session:input', (_e, event) => {
-      if (this.client && this.opened && this.opened.control) this.client.sendInput(event);
+      if (this.client && this._control()) this.client.sendInput(event);
     });
     ipc.on('session:ack', (_e, seq) => {
       if (this.client) this.client.ack(seq);
@@ -68,8 +87,11 @@ class Session extends EventEmitter {
       if (this.client) this.client.requestKeyframe();
     });
     ipc.on('session:reconnect', () => this.reconnect());
+    ipc.on('session:view-only', (_e, on) => {
+      this.viewOnly = on === true;
+    });
     ipc.on('session:action', (_e, name) => {
-      if (this.client && this.opened && this.opened.control && typeof name === 'string') this.client.sendAction(name);
+      if (this.client && this._control() && typeof name === 'string') this.client.sendAction(name);
     });
     ipc.on('session:display', (_e, id) => {
       if (typeof id !== 'string' || id === this.options.display) return;
@@ -154,7 +176,8 @@ class Session extends EventEmitter {
       this.send('session:frame', { key: frame.key, seq: frame.seq, timestamp: frame.timestamp }, new Uint8Array(frame.data));
     });
     client.on('clipboard', (text) => {
-      if (!this.opened || !this.opened.control || text.length > MAX_CLIPBOARD) return;
+      // only while this window is in front, so the host cannot swap what you paste elsewhere
+      if (!this._control() || text.length > MAX_CLIPBOARD || this.win.isDestroyed() || !this.win.isFocused()) return;
       this._clip = text;
       clipboard.writeText(text);
     });
@@ -175,7 +198,7 @@ class Session extends EventEmitter {
     const client = this.client;
     if (!client || this.codecs === null) return;
     try {
-      const opened = await client.open({
+      const raw = await client.open({
         source: this.target.source,
         display: this.options.display,
         codecs: this.codecs,
@@ -183,6 +206,7 @@ class Session extends EventEmitter {
         viewOnly: this.options.viewOnly,
       });
       if (this.client !== client || this.win.isDestroyed()) return;
+      const opened = tidy(raw || {});
       this.opened = opened;
       this._clip = clipboard.readText();
       if (opened.width > 0 && opened.height > 0) {
@@ -245,11 +269,16 @@ class Session extends EventEmitter {
   }
 
   _offerClipboard() {
-    if (!this.client || !this.opened || !this.opened.control || this.win.isDestroyed() || !this.win.isFocused()) return;
+    if (!this.client || !this._control() || this.win.isDestroyed() || !this.win.isFocused()) return;
     const text = clipboard.readText();
     if (text === this._clip) return;
     this._clip = text;
     if (text && text.length <= MAX_CLIPBOARD) this.client.sendClipboard(text);
+  }
+
+  // controlling needs both: the host allows it and the person here has not chosen view only
+  _control() {
+    return !!this.opened && this.opened.control && !this.viewOnly;
   }
 
   _pushState() {

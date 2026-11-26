@@ -76,7 +76,7 @@ for (const [first, letters] of Object.entries(rows)) {
 for (let f = 1; f <= 10; f++) KEYS[`F${f}`] = [0x3a + f, 0xffbd + f];
 
 function lookup(code) {
-  const hit = KEYS[code];
+  const hit = Object.hasOwn(KEYS, code) ? KEYS[code] : null;
   return hit ? { scancode: hit[0], keysym: hit[1] } : null;
 }
 

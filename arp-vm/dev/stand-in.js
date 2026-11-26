@@ -12,7 +12,7 @@ module.exports = function standIn({ width = 1024, height = 768 } = {}) {
   if (process.versions.electron) env.ELECTRON_RUN_AS_NODE = '1';
   return {
     binary: null,
-    launcher: (args) => spawn(process.execPath, [path.join(__dirname, 'fake-qemu.js'), ...args], { stdio: ['ignore', 'ignore', 'pipe'], env, windowsHide: true }),
+    launcher: (args) => spawn(process.execPath, [path.join(__dirname, 'fake-qemu.js'), ...args], { stdio: ['pipe', 'pipe', 'pipe'], env, windowsHide: true }),
     makeDisk: async (file) => fs.writeFileSync(file, ''),
   };
 };
