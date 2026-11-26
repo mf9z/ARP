@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:" />
+    <title>ARDP</title>
+    <link rel="stylesheet" href="chrome.css" />
+    <link rel="stylesheet" href="launcher.css" />
+  </head>
+  <body class="dialog inactive">
+    <svg width="0" height="0" class="defs" aria-hidden="true">
+      <symbol id="ico-connect" viewBox="0 0 32 32" shape-rendering="crispEdges">
+        <path fill="#282121" d="M2 3h17v13H2zM8 16h5v2H8zM5 18h11v2H5z" />
+        <path fill="#9bdcf7" d="M4 5h13v9H4z" />
+        <path fill="#ffffff" d="M12 11h19v15H12z" />
+        <path fill="#282121" d="M13 12h17v13H13zM19 25h5v2h-5zM16 27h11v2H16z" />
+        <path fill="#03aeee" d="M15 14h13v9H15z" />
+        <path fill="#ffffff" d="M16 15h5v1h-5zM16 17h3v1h-3z" />
+      </symbol>
+      <symbol id="ico-computer" viewBox="0 0 32 32" shape-rendering="crispEdges">
+        <path fill="#282121" d="M3 4h26v18H3zM13 22h6v3h-6zM8 25h16v3H8z" />
+        <path fill="#03aeee" d="M5 6h22v14H5z" />
+        <path fill="#ffffff" d="M7 8h8v1H7zM7 10h5v1H7z" />
+        <path fill="#ea8a38" d="M21 26h2v1h-2z" />
+      </symbol>
+      <symbol id="ico-warning" viewBox="0 0 16 16">
+        <path fill="#f5c400" stroke="#282121" stroke-width="1" stroke-linejoin="round" d="M8 1.5 15 14H1z" />
+        <path fill="#282121" d="M7.25 6h1.5v4h-1.5zM7.25 11h1.5v1.5h-1.5z" />
+      </symbol>
+    </svg>
+
+    <header class="titlebar">
+      <span class="tb-icon"><img src="logo.svg" alt="" /></span>
+      <div class="tb-title" id="window-title">ARDP</div>
+      <div class="tb-controls">
+        <button class="tb-btn" id="min" aria-label="Minimize" tabindex="-1">
+          <svg viewBox="0 0 10 10" shape-rendering="crispEdges"><path d="M0 5.5h10" /></svg>
+        </button>
+        <button class="tb-btn tb-close" id="close" aria-label="Close" tabindex="-1">
+          <svg viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10" /></svg>
+        </button>
+      </div>
+    </header>
+
+    <section class="banner">
+      <img src="logo.svg" alt="" width="58" height="58" />
+      <div class="banner-text">
+        <h1 id="product-name">ARDP</h1>
+        <p id="product-meaning">Aesthetic Remote Desktop Protocol</p>
+      </div>
+    </section>
+
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" id="tab-connect" aria-controls="page-connect" aria-selected="true">Connect</button>
+      <button class="tab" role="tab" id="tab-host" aria-controls="page-host" aria-selected="false" tabindex="-1">This computer</button>
+      <button class="tab" role="tab" id="tab-about" aria-controls="page-about" aria-selected="false" tabindex="-1">About</button>
+    </div>
+
+    <div class="pages">
+      <section class="page" id="page-connect" role="tabpanel" aria-labelledby="tab-connect">
+        <div class="lede">
+          <svg width="32" height="32"><use href="#ico-connect" /></svg>
+          <p>Use another computer from this one.<br /><span class="dim">It must be running ARDP and allow remote connections.</span></p>
+        </div>
+
+        <form id="connect-form" class="form" autocomplete="off">
+          <label for="address">Computer:</label>
+          <div class="combo" id="combo">
+            <input class="field" id="address" type="text" placeholder="192.168.1.20" spellcheck="false" autocapitalize="off" role="combobox" aria-expanded="false" aria-controls="recent" />
+            <button class="combo-btn" id="combo-btn" type="button" tabindex="-1" aria-label="Recent computers">
+              <svg viewBox="0 0 8 5" width="8" height="5"><path d="M0 0h8L4 5z" fill="currentColor" /></svg>
+            </button>
+            <ul class="combo-list" id="recent" role="listbox" hidden></ul>
+          </div>
+
+          <label for="code">Access code:</label>
+          <input class="field code" id="code" type="text" placeholder="XXXX-XXXX-XXXX" spellcheck="false" autocapitalize="characters" />
+
+          <span></span>
+          <label class="check"><input type="checkbox" id="remember" /><span>Remember this access code</span></label>
+
+          <div class="message" id="message" role="alert" hidden>
+            <svg width="16" height="16"><use href="#ico-warning" /></svg>
+            <span id="message-text"></span>
+          </div>
+
+          <fieldset class="group options" id="options" hidden>
+            <legend>Options</legend>
+            <div class="option-row">
+              <label for="quality">Picture:</label>
+              <select class="field" id="quality">
+                <option value="low">Low - for slow networks</option>
+                <option value="balanced">Balanced</option>
+                <option value="high">High - sharpest, uses more network</option>
+              </select>
+            </div>
+            <label class="check"><input type="checkbox" id="view-only" /><span>View only - do not send my mouse and keyboard</span></label>
+            <label class="check"><input type="checkbox" id="full-screen" /><span>Open in full screen</span></label>
+          </fieldset>
+
+          <div class="actions">
+            <button class="btn disclosure" id="toggle-options" type="button" aria-expanded="false" aria-controls="options">
+              <span>Options</span>
+              <svg viewBox="0 0 8 5" width="8" height="5"><path d="M0 0h8L4 5z" fill="currentColor" /></svg>
+            </button>
+            <span class="spacer"></span>
+            <button class="btn default" id="connect" type="submit">Connect</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="page" id="page-host" role="tabpanel" aria-labelledby="tab-host" hidden>
+        <div class="lede">
+          <svg width="32" height="32"><use href="#ico-computer" /></svg>
+          <p>Use this computer from another one.<br /><span class="dim">Anyone who connects needs the access code below.</span></p>
+        </div>
+
+        <div class="stack">
+          <label class="check"><input type="checkbox" id="host-enabled" /><span>Allow remote connections to this computer</span></label>
+          <label class="check indent"><input type="checkbox" id="host-control" /><span>Let them use the mouse and keyboard</span></label>
+        </div>
+
+        <fieldset class="group" id="host-details">
+          <legend>To connect to this computer</legend>
+          <div class="grid">
+            <span class="k">Name:</span>
+            <span class="v" id="host-name"></span>
+            <span></span>
+
+            <span class="k">Address:</span>
+            <span class="v selectable" id="host-address"></span>
+            <span class="btns"><button class="btn small" id="copy-address" type="button">Copy</button></span>
+
+            <span class="k">Access code:</span>
+            <span class="v code selectable" id="host-code"></span>
+            <span class="btns">
+              <button class="btn small" id="new-code" type="button" title="Replace the access code. Computers connected with the old one are disconnected.">New</button>
+              <button class="btn small" id="copy-code" type="button">Copy</button>
+            </span>
+
+            <label class="k" for="host-port">Port:</label>
+            <span class="v port">
+              <input class="field" id="host-port" type="text" inputmode="numeric" maxlength="5" />
+            </span>
+            <span></span>
+          </div>
+          <p class="dim also" id="host-also" hidden></p>
+        </fieldset>
+
+        <div class="host-status">
+          <span class="led" id="host-led"></span>
+          <span id="host-status-text"></span>
+        </div>
+        <ul class="sessions" id="host-sessions"></ul>
+
+        <label class="check" id="login-row" hidden><input type="checkbox" id="start-at-login" /><span>Start ARDP when I sign in</span></label>
+      </section>
+
+      <section class="page" id="page-about" role="tabpanel" aria-labelledby="tab-about" hidden>
+        <div class="about">
+          <img src="logo.svg" alt="" width="72" height="72" />
+          <div>
+            <h2 id="about-name">ARDP</h2>
+            <p id="about-meaning">Aesthetic Remote Desktop Protocol</p>
+            <p class="dim" id="about-version"></p>
+          </div>
+        </div>
+        <p id="about-family"></p>
+        <p class="dim">The connection between two computers is encrypted, and each side proves it knows the access code before anything is shown.</p>
+        <fieldset class="group">
+          <legend>This computer's identity</legend>
+          <p class="fingerprint selectable" id="about-fingerprint"></p>
+        </fieldset>
+      </section>
+    </div>
+
+    <footer class="statusbar">
+      <div class="pane grow" id="status">Ready</div>
+      <button class="pane link" id="status-host" type="button" tabindex="-1">
+        <span class="led" id="status-led"></span>
+        <span id="status-host-text"></span>
+      </button>
+    </footer>
+
+    <script src="launcher.js"></script>
+  </body>
+</html>

@@ -1,0 +1,92 @@
+body.session {
+  background: #000000;
+}
+
+.stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: #000000;
+  overflow: hidden;
+}
+
+#screen {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000000;
+  outline: none;
+}
+
+body.controlling #screen {
+  cursor: url('cursor-dot.svg') 4 4, crosshair;
+}
+
+.notice {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.5);
+}
+.notice[hidden] {
+  display: none;
+}
+body.fresh .notice {
+  background: #1d1a1a;
+}
+
+.notice-box {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  width: min(380px, calc(100% - 32px));
+  padding: 16px 18px;
+  background: var(--face);
+  border: 1px solid #8d8d8d;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.6) inset, 3px 3px 10px rgba(0, 0, 0, 0.4);
+}
+.notice-box img {
+  flex: none;
+}
+.notice-body {
+  flex: 1;
+  min-width: 0;
+  padding-top: 2px;
+}
+.notice-body p {
+  margin: 0;
+  min-height: 36px;
+  overflow-wrap: anywhere;
+}
+.notice-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+.notice-actions[hidden] {
+  display: none;
+}
+
+body.fullscreen .titlebar {
+  position: fixed;
+  z-index: 40;
+  top: 0;
+  left: 50%;
+  width: min(560px, 70vw);
+  transform: translate(-50%, -100%);
+  transition: transform 0.14s ease-out;
+  border: 1px solid #8d8d8d;
+  border-top: 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+body.fullscreen.reveal .titlebar {
+  transform: translate(-50%, 0);
+}
+@media (prefers-reduced-motion: reduce) {
+  body.fullscreen .titlebar {
+    transition: none;
+  }
+}

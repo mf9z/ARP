@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:" />
+    <title>ARDP</title>
+    <link rel="stylesheet" href="chrome.css" />
+    <link rel="stylesheet" href="session.css" />
+  </head>
+  <body class="session inactive">
+    <header class="titlebar" id="titlebar">
+      <button class="tb-icon" id="sysmenu" aria-label="Window menu" aria-haspopup="menu" tabindex="-1">
+        <img src="logo.svg" alt="" />
+      </button>
+      <div class="tb-title" id="title">ARDP</div>
+      <div class="tb-controls">
+        <button class="tb-btn" id="min" aria-label="Minimize" tabindex="-1">
+          <svg viewBox="0 0 10 10" shape-rendering="crispEdges"><path d="M0 5.5h10" /></svg>
+        </button>
+        <button class="tb-btn" id="max" aria-label="Maximize" tabindex="-1">
+          <svg class="when-normal" viewBox="0 0 10 10" shape-rendering="crispEdges"><path d="M0.5 0.5h9v9h-9z" /></svg>
+          <svg class="when-max" viewBox="0 0 10 10" shape-rendering="crispEdges"><path d="M2.5 2.5v-2h7v7h-2M0.5 2.5h7v7h-7z" /></svg>
+        </button>
+        <button class="tb-btn tb-close" id="close" aria-label="Close" tabindex="-1">
+          <svg viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10" /></svg>
+        </button>
+      </div>
+    </header>
+
+    <main class="stage" id="stage">
+      <canvas id="screen" width="16" height="9" tabindex="0"></canvas>
+
+      <div class="notice" id="notice">
+        <div class="notice-box" role="status">
+          <img src="logo.svg" alt="" width="40" height="40" />
+          <div class="notice-body">
+            <p id="notice-text">Connecting…</p>
+            <div class="notice-actions" id="notice-actions" hidden>
+              <button class="btn default" id="reconnect">Reconnect</button>
+              <button class="btn" id="dismiss">Close</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <ul class="menu" id="menu" role="menu" hidden>
+      <li role="menuitemcheckbox" data-action="fullscreen" aria-checked="false">Full screen<span class="keys">Ctrl+Alt+Enter</span></li>
+      <li role="menuitemcheckbox" data-action="viewonly" aria-checked="false">View only</li>
+      <li class="sep" role="separator" id="menu-displays"></li>
+      <li role="menuitem" data-action="send-meta" id="menu-meta">Send Windows key</li>
+      <li role="menuitem" data-action="send-taskmgr">Send Ctrl+Shift+Esc</li>
+      <li class="sep" role="separator"></li>
+      <li role="menuitem" data-action="disconnect">Disconnect</li>
+    </ul>
+
+    <script src="session.js"></script>
+  </body>
+</html>
