@@ -3,7 +3,7 @@
 const os = require('os');
 const path = require('path');
 const { pathToFileURL } = require('url');
-const { app, BrowserWindow, ipcMain, Menu, Tray, dialog, clipboard, protocol, net } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, Tray, dialog, clipboard, protocol, net, shell } = require('electron');
 const product = require('ardp/src/common/product');
 const { parseAddress, formatAddress } = require('ardp/src/common/address');
 const { describe } = require('ardp/src/common/messages');
@@ -363,6 +363,8 @@ function main() {
     ipcMain.on('home:open', (_e, name) => {
       if (name === 'rdp' || name === 'vms') open(name);
     });
+
+    ipcMain.on('home:get-qemu', () => shell.openExternal('https://www.qemu.org/download/'));
 
     ipcMain.handle('launcher:state', () => rdpState());
     ipcMain.handle('launcher:connect', (_e, request) => connect(request || {}));

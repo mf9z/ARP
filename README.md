@@ -46,7 +46,7 @@ desktop, and that's the whole window:
 |----------------------------------------------|------------|-------|
 | [`arp-launcher`](arp-launcher)               | the app. One window that launches the rest | works |
 | [`ardp`](ardp)                               | Aesthetic Remote Desktop Protocol: the protocol, the host, the session window | works |
-| [`arp-vm`](arp-vm)                           | virtual machines on QEMU that you open like any other computer | built, not yet run on real QEMU |
+| [`arp-vm`](arp-vm)                           | virtual machines on QEMU that you open like any other computer | works |
 
 ## Install
 
@@ -56,9 +56,18 @@ npm install
 npm start
 ```
 
-Needs Node 22.12+. `npm run dist` builds an installer into `arp-launcher/dist`.
-If Electron's download gets skipped by npm, run
-`node node_modules/electron/install.js` once.
+`npm run dist` builds an installer into `arp-launcher/dist`.
+
+### Needs
+
+| what        | get it with |
+|-------------|-------------|
+| Node 22.12+ | [nodejs.org](https://nodejs.org) |
+| QEMU        | `winget install SoftwareFreedomConservancy.QEMU` on Windows, `brew install qemu` on a Mac, `sudo apt install qemu-system-x86 qemu-utils` on Linux |
+
+`npm install` checks for both and tells you what is missing; `npm run setup`
+checks again. Without QEMU the app still opens, says so on its home window and
+keeps virtual machines off.
 
 ## Use
 
@@ -89,6 +98,6 @@ npm run selftest:vm    # the whole app with a stand-in for QEMU, no windows show
 
 - [x] remote desktop
 - [x] one launcher for everything
-- [ ] virtual machines (built, needs a run on real QEMU)
+- [x] virtual machines
 - [ ] calling
 - [ ] screen sharing

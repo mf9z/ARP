@@ -140,7 +140,15 @@ class Session extends EventEmitter {
   _attach(client) {
     this.client = client;
     this.opened = null;
-    client.on('video-config', (config) => this.send('session:config', config));
+    client.on('video-config', (config) => {
+      this.send('session:config', config);
+      if (!this.opened || !(config.width > 0 && config.height > 0)) return;
+      const aspect = config.width / config.height;
+      if (Math.abs(aspect - this.aspect) < 0.001) return;
+      this.aspect = aspect;
+      this._fit(config.width, config.height);
+    });
+    client.on('waiting', () => this.send('session:status', { text: `Waiting for someone at ${this.remoteName} to allow this…` }));
     client.on('video-frame', (frame) => {
       // copy out of the socket chunk, ipc would serialize all of it
       this.send('session:frame', { key: frame.key, seq: frame.seq, timestamp: frame.timestamp }, new Uint8Array(frame.data));

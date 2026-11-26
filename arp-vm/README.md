@@ -57,9 +57,21 @@ The tests don't need QEMU. `dev/fake-qemu.js` stands in for it: it takes the
 same arguments, serves a test picture as the VM's screen and answers the
 control socket. `ARP_FAKE_QEMU=1` makes the app use it too.
 
+Against the real thing, from the repo root (no window is shown, the guest's
+screen is saved as png):
+
+```sh
+npx electron arp-launcher/scripts/real-vm-check.js --iso some.iso --type root
+npx electron arp-launcher/scripts/vm-check.js --real
+```
+
 ## Limits
 
-- Not run against real QEMU yet. Everything is tested with the stand-in.
+- Tested on Windows with QEMU 11 and an Alpine Linux guest. Nothing else yet.
+- Without hardware acceleration guests are slow. On Windows that means turning
+  on the "Windows Hypervisor Platform" feature; QEMU falls back to plain
+  emulation when it is off.
+
 - x86-64 guests only.
 - No sound and no clipboard between the guest and you.
 - The VM's screen socket has no password. It only listens on this computer,

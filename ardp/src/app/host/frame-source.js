@@ -53,7 +53,11 @@ class FrameStream extends SourceStream {
     this.display = display;
     this.request = request;
     this.encoder = null;
+    this.feed = null;
+    this.started = false;
     this.closed = false;
+    this._building = null;
+    this._stale = false;
 
     const { fps, bitrate } = quality.plan(request.quality, display.width, display.height, 30);
     this.fps = fps;
@@ -74,36 +78,75 @@ class FrameStream extends SourceStream {
   async prepare() {
     const display = this.display;
     display.on('close', () => this.finish('source_ended'));
-    display.on('resize', () => this.finish('display_changed'));
+    display.on('rect', (rect) => {
+      if (this.feed) this.feed.rect(rect);
+    });
+    display.on('frame', () => {
+      if (this.feed) this.feed.present();
+    });
+    // a guest changes resolution a few times while it boots; the stream just carries on
+    display.on('resize', () => {
+      this._stale = true;
+      if (this.feed && this.feed !== this.encoder) this.feed.close();
+      this._rebuild().catch(() => this.finish('capture_failed'));
+    });
+    await this._rebuild();
+    if (this.closed) throw new ArdpError('source_ended', 'It stopped while connecting.');
+  }
 
-    const encoder = await Encoder.open(
-      {
-        mode: 'frames',
-        width: display.width,
-        height: display.height,
-        fps: this.fps,
-        bitrate: this.bitrate.start,
-        codecs: this.request.codecs,
-      },
-      (enc) => {
-        display.on('rect', (rect) => enc.rect(rect));
-        display.on('frame', () => enc.present());
-        display.refresh();
-      },
-    );
-    if (this.closed) {
-      encoder.close();
-      throw new ArdpError('source_ended', 'It stopped while connecting.');
+  // makes the encoder for the size the display has now, and swaps it in
+  _rebuild() {
+    if (!this._building) {
+      this._building = this._build().finally(() => {
+        this._building = null;
+      });
     }
-    this.encoder = encoder;
-    this.info.width = encoder.width;
-    this.info.height = encoder.height;
-    encoder.on('frame', (meta, data) => this.emit('frame', meta, data));
-    encoder.on('failed', () => this.finish('capture_failed'));
+    return this._building;
+  }
+
+  async _build() {
+    do {
+      this._stale = false;
+      const { width, height } = this.display;
+      let encoder;
+      try {
+        encoder = await Encoder.open(
+          { mode: 'frames', width, height, fps: this.fps, bitrate: quality.plan(this.request.quality, width, height, 30).bitrate.start, codecs: this.request.codecs },
+          (enc) => {
+            this.feed = enc;
+            this.display.refresh();
+          },
+        );
+      } catch (err) {
+        if (this._stale && !this.closed) continue;
+        throw err;
+      }
+      if (this.closed || this._stale) {
+        encoder.close();
+        continue;
+      }
+
+      const old = this.encoder;
+      this.encoder = encoder;
+      this.info.width = encoder.width;
+      this.info.height = encoder.height;
+      encoder.on('frame', (meta, data) => {
+        if (this.encoder === encoder) this.emit('frame', meta, data);
+      });
+      encoder.on('failed', () => {
+        if (this.encoder === encoder) this.finish('capture_failed');
+      });
+      if (old) old.close();
+      if (this.started) {
+        this.emit('config', encoder.config);
+        encoder.go();
+      }
+    } while (this._stale && !this.closed);
   }
 
   start() {
     if (this.closed) return;
+    this.started = true;
     this.emit('config', this.encoder.config);
     this.encoder.go();
   }
@@ -139,6 +182,7 @@ class FrameStream extends SourceStream {
     this.closed = true;
     if (this.source.active === this) this.source.active = null;
     this.display.close();
+    if (this.feed) this.feed.close();
     if (this.encoder) this.encoder.close();
   }
 }

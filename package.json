@@ -12,6 +12,8 @@
     "arp-launcher"
   ],
   "scripts": {
+    "setup": "node scripts/setup.js --strict",
+    "postinstall": "node scripts/setup.js",
     "start": "npm start -w arp-launcher",
     "test": "npm test -w ardp -w arp-vm",
     "selftest:vm": "npm run selftest:vm -w arp-launcher",

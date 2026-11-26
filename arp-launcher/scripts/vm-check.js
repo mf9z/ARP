@@ -2,7 +2,8 @@
 
 // a vm from end to end without qemu and without showing a window:
 // stand-in vm -> encoder -> host -> client, and input back into the vm.
-// run: npx electron scripts/vm-check.js
+// run: npx electron arp-launcher/scripts/vm-check.js          with a stand-in for qemu
+//      npx electron arp-launcher/scripts/vm-check.js --real   with the real one (an empty vm, it just shows its bios)
 
 const fs = require('fs');
 const os = require('os');
@@ -18,6 +19,7 @@ const { VmService } = require('../src/vm-service');
 const CODE = 'TEST-CODE-1234';
 const INFO = { name: 'check', platform: process.platform, version: '0' };
 const SIZE = { width: 1280, height: 720 };
+const real = process.argv.includes('--real');
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const standIn = require('arp-vm/dev/stand-in');
@@ -39,7 +41,7 @@ app.whenReady().then(async () => {
   };
   let service;
   try {
-    service = new VmService({ dir, store: standIn(SIZE) });
+    service = new VmService({ dir, store: real ? undefined : standIn(SIZE) });
     const vm = await service.create({ name: 'Check VM', memory: 1024, cpus: 2, diskGb: 8 });
 
     const salt = crypto.randomBytes(16);
@@ -74,29 +76,40 @@ app.whenReady().then(async () => {
     const opened = await client.open({ source: 'vm:check-vm', codecs: ['h264', 'vp8', 'vp9'], quality: 'balanced' });
     console.log(`opened in ${Date.now() - started} ms: ${JSON.stringify(opened)}`);
     expect(vm.state === 'running', 'opening it switched the vm on');
-    expect(opened.kind === 'vm' && opened.width === SIZE.width && opened.height === SIZE.height && opened.control, 'the stream has the size of the vm screen and can be controlled');
+    const sized = real ? opened.width >= 320 && opened.height >= 200 : opened.width === SIZE.width && opened.height === SIZE.height;
+    expect(opened.kind === 'vm' && sized && opened.control, 'the stream has the size of the vm screen and can be controlled');
     expect(opened.actions.join() === 'ctrl-alt-del,restart,shutdown', 'the vm offers ctrl+alt+del, restart and shut down');
 
     await sleep(2500);
     const stream = host.sources()[0].active;
     console.log(`video: ${config && config.codec} via ${stream.encoder.label}, ${frames} frames (${keys} key), ${(bytes / 1024).toFixed(0)} KiB in 2.5 s, ${JSON.stringify(stream.encoder.stats)}`);
-    expect(config && frames >= 20 && keys >= 1, 'encoded video arrives at the client');
+    expect(config && frames >= (real ? 1 : 20) && keys >= 1, 'encoded video arrives at the client');
 
-    client.sendInput({ t: 'move', x: 0.5, y: 0.5 });
-    client.sendInput({ t: 'button', b: 0, down: true });
-    client.sendInput({ t: 'button', b: 0, down: false });
-    client.sendInput({ t: 'key', code: 'KeyA', down: true });
-    client.sendInput({ t: 'key', code: 'KeyA', down: false });
-    client.sendAction('ctrl-alt-del');
-    await sleep(300);
-    const events = await vm.qmp.execute('x-fake-events');
-    const pointer = events.filter((e) => e.t === 'pointer').map((e) => [e.x, e.y, e.mask]);
-    const typed = events.filter((e) => e.t === 'xkey').map((e) => `${e.code}${e.down ? '+' : '-'}`);
-    expect(JSON.stringify(pointer) === JSON.stringify([[640, 360, 0], [640, 360, 1], [640, 360, 0]]), `the pointer lands in the middle of the vm screen and clicks: ${JSON.stringify(pointer)}`);
-    expect(typed.join(' ') === '30+ 30- 29+ 56+ 211+ 211- 56- 29-', `keys arrive as scancodes, then ctrl+alt+del: ${typed.join(' ')}`);
+    if (!real) {
+      client.sendInput({ t: 'move', x: 0.5, y: 0.5 });
+      client.sendInput({ t: 'button', b: 0, down: true });
+      client.sendInput({ t: 'button', b: 0, down: false });
+      client.sendInput({ t: 'key', code: 'KeyA', down: true });
+      client.sendInput({ t: 'key', code: 'KeyA', down: false });
+      client.sendAction('ctrl-alt-del');
+      await sleep(300);
+      const events = await vm.qmp.execute('x-fake-events');
+      const pointer = events.filter((e) => e.t === 'pointer').map((e) => [e.x, e.y, e.mask]);
+      const typed = events.filter((e) => e.t === 'xkey').map((e) => `${e.code}${e.down ? '+' : '-'}`);
+      expect(JSON.stringify(pointer) === JSON.stringify([[640, 360, 0], [640, 360, 1], [640, 360, 0]]), `the pointer lands in the middle of the vm screen and clicks: ${JSON.stringify(pointer)}`);
+      expect(typed.join(' ') === '30+ 30- 29+ 56+ 211+ 211- 56- 29-', `keys arrive as scancodes, then ctrl+alt+del: ${typed.join(' ')}`);
+    }
+
+    if (!real) {
+      const before = frames;
+      await vm.qmp.execute('x-fake-resize', { width: 800, height: 600 });
+      for (let i = 0; i < 60 && !(config.width === 800 && frames > before + 3); i++) await sleep(100);
+      expect(config.width === 800 && config.height === 600 && frames > before + 3 && !closed, `a resolution change carries on in the same session: ${JSON.stringify(config)}`);
+    }
 
     client.sendAction('shutdown');
-    for (let i = 0; i < 50 && !closed; i++) await sleep(100);
+    // a guest with no system ignores the power button, so real qemu takes the full 30 s
+    for (let i = 0; i < (real ? 400 : 50) && !closed; i++) await sleep(100);
     expect(closed && closed.code === 'source_ended', `shutting the vm down ends the session: ${JSON.stringify(closed)}`);
     expect(vm.state === 'stopped', 'and the vm is off');
     await host.close();

@@ -19,6 +19,7 @@
 
   $('open-rdp').addEventListener('click', () => api.open('rdp'));
   $('open-vms').addEventListener('click', () => api.open('vms'));
+  $('get-qemu').addEventListener('click', () => api.getQemu());
 
   function render(state) {
     document.title = state.product.name;
@@ -28,6 +29,7 @@
     $('status').textContent = `Version ${state.version}`;
 
     const { host, vms } = state;
+    $('needs-qemu').hidden = vms.available;
     let led = '';
     let text = 'Not accepting connections';
     if (host.error) {

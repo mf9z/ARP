@@ -58,3 +58,19 @@
 .tile:disabled span {
   color: #a8a4a4;
 }
+
+.needs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 10px 0;
+  padding: 7px 9px;
+  border: 1px solid #e6cf7a;
+  background: #fff9dc;
+}
+.needs svg {
+  flex: none;
+}
+.needs span {
+  flex: 1;
+}

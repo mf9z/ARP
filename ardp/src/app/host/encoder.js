@@ -28,6 +28,7 @@ class Encoder extends EventEmitter {
     this.width = 0;
     this.height = 0;
     this.stats = null;
+    this._giveUp = null;
   }
 
   async _open(options, afterStart) {
@@ -53,6 +54,7 @@ class Encoder extends EventEmitter {
         clearTimeout(timer);
         fn(value);
       };
+      this._giveUp = stop(reject);
       ipc.once('capture:ready', (_e, info) => stop(resolve)(info));
       ipc.once('capture:error', (_e, message) => stop(reject)(new ArdpError('capture_failed', String(message))));
       contents.once('render-process-gone', () => stop(reject)(new ArdpError('capture_failed', 'The video encoder stopped unexpectedly.')));
@@ -64,6 +66,7 @@ class Encoder extends EventEmitter {
     if (afterStart) afterStart(this);
 
     const info = await ready;
+    this._giveUp = null;
     this.label = info.encoder;
     this.codec = info.codec;
     this.width = info.width;
@@ -111,6 +114,7 @@ class Encoder extends EventEmitter {
   close() {
     if (this.closed) return;
     this.closed = true;
+    if (this._giveUp) this._giveUp(new ArdpError('capture_failed', 'The picture was stopped.'));
     if (this.win && !this.win.isDestroyed()) this.win.destroy();
     this.win = null;
   }

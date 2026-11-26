@@ -31,7 +31,8 @@ npm run dist           # installer in arp-launcher/dist
 ```sh
 npm run selftest:vm    # everything but the picture on your screen, no windows shown
 npm run selftest       # opens real windows and connects this computer to itself
-npx electron arp-launcher/scripts/vm-check.js    # a vm through encoder, host and client
+npx electron arp-launcher/scripts/vm-check.js    # a vm through encoder, host and client (--real for real QEMU)
+npx electron arp-launcher/scripts/real-vm-check.js --iso some.iso    # boot a real guest, save its screen
 ```
 
 `src/main.js` is the app. `src/ui` holds the home window and the VM manager;
