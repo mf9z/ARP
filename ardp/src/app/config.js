@@ -13,6 +13,7 @@ const DEFAULTS = {
     code: null,
     salt: null,
     allowControl: true,
+    askFirst: true,
   },
   client: {
     recent: [],

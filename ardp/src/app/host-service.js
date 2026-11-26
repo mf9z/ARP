@@ -28,10 +28,11 @@ function localAddresses() {
 }
 
 class HostService extends EventEmitter {
-  constructor({ config, dir, version, extraSources }) {
+  constructor({ config, dir, version, extraSources, approve }) {
     super();
     this.config = config;
     this.extraSources = extraSources || (() => []);
+    this.approve = approve || null;
     this.dir = dir;
     this.name = os.hostname();
     this.info = { name: this.name, platform: process.platform, version };
@@ -65,7 +66,10 @@ class HostService extends EventEmitter {
       credential: () => this.credential,
       sources: () => [desktop, ...this.extraSources()],
     };
-    this.host = new ArdpHost(options);
+    this.host = new ArdpHost({
+      ...options,
+      approve: (who, signal) => (this.approve && this.config.data.host.askFirst !== false ? this.approve(who, signal) : true),
+    });
     // a second listener on loopback only, for opening this computer's own vms
     this.local = new ArdpHost(options);
     for (const event of ['session', 'session-end', 'stream']) this.host.on(event, () => this._changed());
@@ -85,6 +89,7 @@ class HostService extends EventEmitter {
       listening: !!(this.host && this.host.listening),
       port: settings.port,
       allowControl: settings.allowControl !== false,
+      askFirst: settings.askFirst !== false,
       canControl: !!this.input,
       code: this.code,
       addresses: localAddresses(),
@@ -124,6 +129,12 @@ class HostService extends EventEmitter {
   async newCode() {
     await this._useCode(auth.generateCode(), crypto.randomBytes(16), true);
     if (this.host) this.host.disconnect(undefined, 'kicked');
+    this._changed();
+  }
+
+  setAskFirst(ask) {
+    this.config.data.host.askFirst = !!ask;
+    this.config.save();
     this._changed();
   }
 

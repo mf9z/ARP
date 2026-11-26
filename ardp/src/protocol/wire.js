@@ -14,6 +14,7 @@ const T = Object.freeze({
   OPEN: 0x10,
   OPENED: 0x11,
   CLOSE: 0x12,
+  WAIT: 0x13,
 
   VIDEO_CONFIG: 0x20,
   VIDEO_FRAME: 0x21,

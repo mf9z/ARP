@@ -96,7 +96,8 @@ class ArdpClient extends EventEmitter {
     if (!this._connected) throw new ArdpError('closed', 'Not connected.');
     this.channel.sendJson(T.OPEN, { source, display, codecs, quality, viewOnly: !!viewOnly });
     try {
-      this.opened = await this._expect(T.OPENED);
+      // the other side may be asking its user, so this one waits longer
+      this.opened = await this._expect(T.OPENED, 90000);
       return this.opened;
     } catch (err) {
       const error = err instanceof ArdpError ? err : fromSocketError(err);
@@ -176,12 +177,12 @@ class ArdpClient extends EventEmitter {
     });
   }
 
-  _expect(type) {
+  _expect(type, wait = this.timeout + 5000) {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this._waiter = null;
         reject(new ArdpError('timeout', 'The other computer stopped answering.'));
-      }, this.timeout + 5000);
+      }, wait);
       this._waiter = {
         type,
         resolve: (value) => {
@@ -220,6 +221,9 @@ class ArdpClient extends EventEmitter {
     }
 
     switch (type) {
+      case T.WAIT:
+        this.emit('waiting', msg.for);
+        break;
       case T.VIDEO_CONFIG:
         this.emit('video-config', msg);
         break;

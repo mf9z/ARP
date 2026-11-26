@@ -32,6 +32,7 @@ An empty payload is read as `{}`. Unknown message types and unknown JSON members
 | `0x10` | OPEN | C → H | `{ source?, display?, codecs: [family], quality, viewOnly }` |
 | `0x11` | OPENED | H → C | `{ source, kind, name, display, width, height, control, actions }` |
 | `0x12` | CLOSE | both | `{ reason }`; the sender closes afterwards |
+| `0x13` | WAIT | H → C | `{ for: "approval" }`; OPENED will take a while |
 | `0x20` | VIDEO_CONFIG | H → C | `{ codec, width, height, description? }` |
 | `0x21` | VIDEO_FRAME | H → C | binary, below |
 | `0x22` | VIDEO_KEY | C → H | empty; asks for a key frame |
@@ -76,6 +77,8 @@ After WELCOME the client sends one OPEN. `source` picks an entry from `sources` 
 The host answers OPENED, then VIDEO_CONFIG, then frames. `control` says whether the host will accept INPUT; it is false when the client asked for `viewOnly`, when the host only allows watching, and for a desktop shared with a client on the same machine.
 
 A source serves one session at a time. A newer session takes over; the older one gets `CLOSE replaced`.
+
+**Asking first.** A host may ask its user before letting a session open. It sends WAIT, then OPENED if the answer is yes or `ERROR denied` if it is no or nobody answers. A client should wait at least 90 seconds for OPENED. If the client hangs up meanwhile, the host withdraws the question.
 
 **Virtual machines.** Opening a virtual machine that is off switches it on. It can be controlled from the same machine too, since its input goes to the guest and not to the host's desktop.
 
@@ -127,6 +130,7 @@ Used in `ERROR.code` and `CLOSE.reason`.
 | `host_disabled` | the host has no access code set |
 | `version` | protocol versions do not match |
 | `bad_protocol` | a malformed or out-of-order message |
+| `denied` | the host's user said no, or did not answer |
 | `no_source` | the requested source does not exist |
 | `capture_failed` | the source could not start or keep producing video |
 | `display_changed` | the source's resolution changed; open it again |

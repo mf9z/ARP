@@ -258,3 +258,49 @@ test('a host that stops tells its clients why', async (t) => {
   await host.close();
   assert.equal((await closed).code, 'host_stopped');
 });
+
+test('a host that asks first lets the client in only on a yes', async (t) => {
+  const { port, host, source } = await startHost(t);
+  const asked = [];
+  let answer = true;
+  host.approve = async (who) => {
+    asked.push(who);
+    await sleep(50);
+    return answer;
+  };
+
+  const yes = client(port);
+  await yes.connect();
+  const waiting = [];
+  yes.on('waiting', (what) => waiting.push(what));
+  const opened = await yes.open({ viewOnly: true });
+  assert.equal(opened.width, 64);
+  assert.deepEqual(waiting, ['approval']);
+  assert.deepEqual(asked[0], { address: '127.0.0.1', name: 'test', source: 'fake', kind: 'desktop', sourceName: 'Fake', viewOnly: true });
+  yes.close();
+
+  answer = false;
+  const no = client(port);
+  await no.connect();
+  await assert.rejects(no.open({}), (err) => err.code === 'denied');
+  assert.equal(source.streams.length, 1);
+});
+
+test('the question is withdrawn when the client gives up', async (t) => {
+  const { port, host } = await startHost(t);
+  let withdrawn = false;
+  host.approve = (_who, signal) =>
+    new Promise((resolve) => {
+      signal.addEventListener('abort', () => {
+        withdrawn = true;
+        resolve(false);
+      });
+    });
+  const c = client(port);
+  await c.connect();
+  c.open({}).catch(() => {});
+  await sleep(100);
+  c.abort();
+  await sleep(100);
+  assert.equal(withdrawn, true);
+});

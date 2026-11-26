@@ -14,6 +14,7 @@ const MESSAGES = {
   version: () => 'The two computers run incompatible versions of ARDP.',
   host_disabled: () => 'That computer is not accepting remote connections.',
   host_stopped: () => 'Remote connections were turned off on the other computer.',
+  denied: () => 'The other computer did not allow the connection.',
   kicked: () => 'The other computer ended the session.',
   replaced: () => 'Another computer took over this session.',
   no_source: () => 'That computer or virtual machine is not available.',

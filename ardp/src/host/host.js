@@ -25,8 +25,9 @@ const b64 = (text, min, max) => {
 };
 
 class ArdpHost extends EventEmitter {
-  constructor({ identity, info, credential, sources }) {
+  constructor({ identity, info, credential, sources, approve }) {
     super();
+    this.approve = approve || null;
     this.identity = identity;
     this.info = info;
     this.credential = credential;
@@ -124,6 +125,7 @@ class HostSession {
     this.flow = null;
     this.seq = 0;
     this._opening = false;
+    this._asking = null;
     this._flowTimer = null;
     this._auth = null;
 
@@ -281,6 +283,20 @@ class HostSession {
       const source = wanted ? sources.find((s) => s.describe().id === wanted) : sources[0];
       if (!source) throw new ArdpError('no_source', 'That computer or virtual machine is not available.');
 
+      // someone at this computer gets to say yes or no first
+      if (this.host.approve) {
+        const about = source.describe();
+        this._asking = new AbortController();
+        this.channel.sendJson(T.WAIT, { for: 'approval' });
+        const allowed = await this.host.approve(
+          { address: this.address, name: this.client.name, source: about.id, kind: about.kind, sourceName: about.name, viewOnly: msg.viewOnly === true },
+          this._asking.signal,
+        );
+        this._asking = null;
+        if (this.channel.closed) return;
+        if (!allowed) throw new ArdpError('denied', 'The other computer did not allow the connection.');
+      }
+
       const stream = await source.open({
         peer: { address: this.address, name: this.client.name, loopback: this.loopback },
         display: msg.display === undefined ? null : msg.display,
@@ -329,6 +345,7 @@ class HostSession {
 
   _cleanup() {
     clearTimeout(this._deadline);
+    if (this._asking) this._asking.abort();
     clearInterval(this._flowTimer);
     if (this.stream) {
       const stream = this.stream;
