@@ -21,7 +21,7 @@ app.whenReady().then(async () => {
       quality,
       viewOnly: true,
     });
-    console.log(`ready in ${Date.now() - started} ms: ${stream.encoder}, ${stream.info.width}x${stream.info.height}, target ${(stream.bitrate.max / 1e6).toFixed(1)} Mbit/s @ ${stream.fps} fps`);
+    console.log(`ready in ${Date.now() - started} ms: ${stream.encoder.label}, ${stream.info.width}x${stream.info.height}, target ${(stream.bitrate.max / 1e6).toFixed(1)} Mbit/s @ ${stream.fps} fps`);
 
     let frames = 0;
     let keys = 0;
@@ -40,7 +40,7 @@ app.whenReady().then(async () => {
     setTimeout(() => stream.requestKeyframe(), 1500);
     setTimeout(() => {
       console.log(`first frame: ${JSON.stringify(first)}`);
-      console.log(`3 s: ${frames} frames (${keys} key), ${(bytes / 1024).toFixed(0)} KiB, stats ${JSON.stringify(stream.stats)}`);
+      console.log(`3 s: ${frames} frames (${keys} key), ${(bytes / 1024).toFixed(0)} KiB, stats ${JSON.stringify(stream.encoder.stats)}`);
       stream.close();
       app.exit(frames > 0 ? 0 : 1);
     }, 3000);

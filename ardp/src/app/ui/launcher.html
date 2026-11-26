@@ -23,6 +23,14 @@
         <path fill="#ffffff" d="M7 8h8v1H7zM7 10h5v1H7z" />
         <path fill="#ea8a38" d="M21 26h2v1h-2z" />
       </symbol>
+      <symbol id="ico-vm" viewBox="0 0 32 32" shape-rendering="crispEdges">
+        <path fill="#282121" d="M2 3h28v26H2z" />
+        <path fill="#ffffff" d="M4 9h24v18H4z" />
+        <path fill="#03aeee" d="M4 5h24v3H4z" />
+        <path fill="#ffffff" d="M24 6h2v1h-2z" />
+        <path fill="#282121" d="M8 12h16v10H8zM14 22h4v2h-4zM11 24h10v1H11z" />
+        <path fill="#9bdcf7" d="M10 14h12v6H10z" />
+      </symbol>
       <symbol id="ico-warning" viewBox="0 0 16 16">
         <path fill="#f5c400" stroke="#282121" stroke-width="1" stroke-linejoin="round" d="M8 1.5 15 14H1z" />
         <path fill="#282121" d="M7.25 6h1.5v4h-1.5zM7.25 11h1.5v1.5h-1.5z" />
@@ -53,6 +61,7 @@
     <div class="tabs" role="tablist">
       <button class="tab" role="tab" id="tab-connect" aria-controls="page-connect" aria-selected="true">Connect</button>
       <button class="tab" role="tab" id="tab-host" aria-controls="page-host" aria-selected="false" tabindex="-1">This computer</button>
+      <button class="tab" role="tab" id="tab-vms" aria-controls="page-vms" aria-selected="false" tabindex="-1">Virtual machines</button>
       <button class="tab" role="tab" id="tab-about" aria-controls="page-about" aria-selected="false" tabindex="-1">About</button>
     </div>
 
@@ -61,6 +70,16 @@
         <div class="lede">
           <svg width="32" height="32"><use href="#ico-connect" /></svg>
           <p>Use another computer from this one.<br /><span class="dim">It must be running ARDP and allow remote connections.</span></p>
+        </div>
+
+        <div class="chooser" id="chooser" hidden>
+          <p>What do you want to open on <b id="chooser-name"></b>?</p>
+          <ul class="listbox" id="chooser-list" role="listbox" tabindex="0"></ul>
+          <div class="actions">
+            <span class="spacer"></span>
+            <button class="btn default" id="chooser-open" type="button">Open</button>
+            <button class="btn" id="chooser-cancel" type="button">Cancel</button>
+          </div>
         </div>
 
         <form id="connect-form" class="form" autocomplete="off">
@@ -154,6 +173,52 @@
         <ul class="sessions" id="host-sessions"></ul>
 
         <label class="check" id="login-row" hidden><input type="checkbox" id="start-at-login" /><span>Start ARDP when I sign in</span></label>
+      </section>
+
+      <section class="page" id="page-vms" role="tabpanel" aria-labelledby="tab-vms" hidden>
+        <div class="lede">
+          <svg width="32" height="32"><use href="#ico-vm" /></svg>
+          <p>Run virtual machines on this computer.<br /><span class="dim" id="vm-hint"></span></p>
+        </div>
+
+        <ul class="listbox" id="vm-list" role="listbox" tabindex="0"></ul>
+
+        <div class="actions">
+          <button class="btn" id="vm-new" type="button">New...</button>
+          <span class="spacer"></span>
+          <button class="btn" id="vm-open" type="button">Open</button>
+          <button class="btn" id="vm-power" type="button">Start</button>
+          <button class="btn" id="vm-remove" type="button">Remove</button>
+        </div>
+
+        <form id="vm-form" autocomplete="off" hidden>
+          <fieldset class="group">
+            <legend>New virtual machine</legend>
+            <div class="form">
+              <label for="vm-name">Name:</label>
+              <input class="field" id="vm-name" type="text" maxlength="32" placeholder="Windows 11" spellcheck="false" />
+
+              <label for="vm-memory">Memory:</label>
+              <span class="units"><input class="field" id="vm-memory" type="text" inputmode="numeric" maxlength="6" value="4096" /> MB, with <input class="field" id="vm-cpus" type="text" inputmode="numeric" maxlength="2" value="2" /> processors</span>
+
+              <label for="vm-disk">Disk:</label>
+              <span class="units"><input class="field" id="vm-disk" type="text" inputmode="numeric" maxlength="4" value="64" /> GB</span>
+
+              <label for="vm-iso">Installer:</label>
+              <span class="pick"><input class="field" id="vm-iso" type="text" placeholder="an .iso to install from (optional)" spellcheck="false" /><button class="btn small" id="vm-browse" type="button">Browse...</button></span>
+            </div>
+            <div class="actions">
+              <span class="spacer"></span>
+              <button class="btn default" id="vm-create" type="submit">Create</button>
+              <button class="btn" id="vm-cancel" type="button">Cancel</button>
+            </div>
+          </fieldset>
+        </form>
+
+        <div class="message" id="vm-message" role="alert" hidden>
+          <svg width="16" height="16"><use href="#ico-warning" /></svg>
+          <span id="vm-message-text"></span>
+        </div>
       </section>
 
       <section class="page" id="page-about" role="tabpanel" aria-labelledby="tab-about" hidden>

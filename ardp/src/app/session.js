@@ -12,9 +12,10 @@ const BORDER = 2;
 const MAX_CLIPBOARD = 1024 * 1024;
 
 class Session extends EventEmitter {
-  constructor({ target, client, redial, options, icon }) {
+  constructor({ target, client, redial, options, local, quiet, icon }) {
     super();
     this.target = target;
+    this.local = !!local;
     this.address = formatAddress(target);
     this.redial = redial;
     this.options = options;
@@ -67,6 +68,9 @@ class Session extends EventEmitter {
       if (this.client) this.client.requestKeyframe();
     });
     ipc.on('session:reconnect', () => this.reconnect());
+    ipc.on('session:action', (_e, name) => {
+      if (this.client && this.opened && this.opened.control && typeof name === 'string') this.client.sendAction(name);
+    });
     ipc.on('session:display', (_e, id) => {
       if (typeof id !== 'string' || id === this.options.display) return;
       this.options.display = id;
@@ -77,7 +81,7 @@ class Session extends EventEmitter {
       win.on(event, () => this._pushState());
     }
     win.on('resized', () => this._snapToAspect());
-    win.once('ready-to-show', () => win.show());
+    if (!quiet) win.once('ready-to-show', () => win.show());
     win.on('closed', () => {
       clearInterval(this._clipTimer);
       const client = this.client;
@@ -93,6 +97,8 @@ class Session extends EventEmitter {
   }
 
   title() {
+    const o = this.opened;
+    if (o && o.kind === 'vm') return `${o.name} - ${this.local ? 'this computer' : this.remoteName} - ${product.ardp.name}`;
     return `${this.remoteName} - ${this.address} - ${product.ardp.name}`;
   }
 
@@ -183,8 +189,11 @@ class Session extends EventEmitter {
         name: String(d.name || `Display ${i + 1}`).slice(0, 40),
         primary: d.primary === true,
       }));
+      this.win.setTitle(this.title());
       this.send('session:opened', {
         title: this.title(),
+        kind: opened.kind === 'vm' ? 'vm' : 'desktop',
+        actions: (Array.isArray(opened.actions) ? opened.actions : []).filter((a) => typeof a === 'string').slice(0, 8),
         control: !!opened.control,
         width: opened.width,
         height: opened.height,

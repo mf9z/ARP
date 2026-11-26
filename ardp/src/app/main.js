@@ -10,10 +10,14 @@ const { ArdpClient } = require('../client/client');
 const { Config } = require('./config');
 const { HostService } = require('./host-service');
 const { Session } = require('./session');
+const { VmService } = require('./vm-service');
 
 const argv = process.argv.slice(1);
 const startHidden = argv.includes('--hidden');
-const selftest = argv.includes('--selftest');
+// --selftest-vm tests the vm path with a stand-in for qemu, without ever showing a window
+const quiet = argv.includes('--selftest-vm');
+const selftest = quiet || argv.includes('--selftest');
+if (quiet) process.env.ARP_FAKE_QEMU = '1';
 
 const ICONS = path.join(__dirname, '..', '..', 'assets', 'icons');
 const icon = (size) => path.join(ICONS, `icon-${size}.png`);
@@ -28,11 +32,13 @@ if (!selftest && !app.requestSingleInstanceLock()) {
 }
 
 function main() {
-   let config;
-   let hostService;
-   let launcher = null;
-   let tray = null;
-   let dialing = null;
+  let config;
+  let hostService;
+  let vms;
+  let launcher = null;
+  let tray = null;
+  let dialing = null;
+  let choosing = null;
   const sessions = new Set();
   let quitting = false;
 
@@ -80,6 +86,7 @@ function main() {
       startAtLogin: !!config.data.app.startAtLogin,
       defaultPort: product.defaultPort,
       host: hostService.state(),
+      vms: vms.state(),
       client: {
         recent: (Array.isArray(client.recent) ? client.recent : []).map((r) => ({ address: r.address, name: r.name || '', hasCode: !!r.code })),
         quality: client.quality,
@@ -116,7 +123,7 @@ function main() {
     const reveal = () => {
       if (win.isDestroyed() || win.isVisible() || win.ardpRevealed) return;
       win.ardpRevealed = true;
-      if (!startHidden || !config.data.host.enabled) win.show();
+      if (!quiet && (!startHidden || !config.data.host.enabled)) win.show();
     };
     win.ardpReveal = reveal;
     win.once('ready-to-show', () => setTimeout(reveal, 1500));
@@ -200,7 +207,7 @@ function main() {
     return entry ? config.unseal(entry.code) : null;
   }
 
-  async function connect(request) {
+  async function connect(request, { local = false } = {}) {
     const target = parseAddress(request.address);
     if (!target) return { ok: false, field: 'address', text: 'Type the address of the other computer, for example 192.168.1.20.' };
     const shown = formatAddress(target);
@@ -215,11 +222,13 @@ function main() {
       viewOnly: !!request.viewOnly,
       fullScreen: !!request.fullScreen,
     };
-    Object.assign(config.data.client, options);
-    config.save();
+    if (!local) {
+      Object.assign(config.data.client, options);
+      config.save();
+    }
 
     const dial = async () => {
-      const client = new ArdpClient({ host: target.host, port: target.port, accessCode: code, info: clientInfo(), trust });
+      const client = new ArdpClient({ host: target.host, port: target.port, accessCode: code, info: clientInfo(), trust: local ? null : trust });
       dialing = client;
       try {
         await client.connect();
@@ -238,19 +247,59 @@ function main() {
       return { ok: false, code: err.code, field, text: describe(err, shown) };
     }
 
-    await remember(target, client.remote.name, code, !!request.remember);
+    const open = async () => {
+      if (!local) await remember(target, client.remote.name, code, !!request.remember);
+      startSession({ target, client, dial, options, local });
+      return { ok: true };
+    };
 
-    const session = new Session({ target, client, redial: dial, options, icon: icon(256) });
+    // a host with vms: ask which one, unless the address already says
+    if (!target.source && client.sources.length > 1) {
+      choosing = { client, target, open };
+      return {
+        ok: false,
+        choose: {
+          name: client.remote.name,
+          sources: client.sources.slice(0, 32).map((s) => ({
+            id: String(s.id),
+            kind: s.kind === 'vm' ? 'vm' : 'desktop',
+            name: String(s.name || ''),
+            state: s.state ? String(s.state) : '',
+          })),
+        },
+      };
+    }
+    return open();
+  }
+
+  async function choose(id) {
+    const pending = choosing;
+    choosing = null;
+    if (!pending) return { ok: false, cancelled: true };
+    if (typeof id !== 'string' || !pending.client.sources.some((s) => String(s.id) === id)) {
+      pending.client.abort();
+      return { ok: false, cancelled: true };
+    }
+    pending.target.source = id;
+    return pending.open();
+  }
+
+  async function openVm(id) {
+    const port = await hostService.localPort();
+    return connect({ address: `127.0.0.1:${port}/vm:${id}`, code: hostService.code, quality: 'high' }, { local: true });
+  }
+
+  function startSession({ target, client, dial, options, local }) {
+    const session = new Session({ target, client, redial: dial, options, local, quiet, icon: icon(256) });
     sessions.add(session);
     session.on('closed', () => {
       sessions.delete(session);
       if (sessions.size === 0 && !quitting) {
-        showLauncher();
+        if (!quiet) showLauncher();
         toLauncher('launcher:state', launcherState());
       }
     });
     if (launcher) launcher.hide();
-    return { ok: true };
   }
 
   function registerIpc() {
@@ -268,6 +317,7 @@ function main() {
     ipcMain.on('launcher:cancel', () => {
       if (dialing) dialing.abort();
     });
+    ipcMain.handle('launcher:choose', (_e, id) => choose(id));
     ipcMain.on('launcher:fit', (_e, height) => {
       if (!launcher || !Number.isFinite(height)) return;
       const [width] = launcher.getContentSize();
@@ -297,6 +347,49 @@ function main() {
     });
     ipcMain.on('host:disconnect', (_e, id) => hostService.disconnect(Number.isInteger(id) ? id : undefined));
 
+    const vmCall = async (run) => {
+      try {
+        await run();
+        return { ok: true, vms: vms.state() };
+      } catch (err) {
+        return { ok: false, text: err.message, vms: vms.state() };
+      }
+    };
+    ipcMain.handle('vm:create', (_e, spec) => vmCall(() => vms.create(spec || {})));
+    ipcMain.handle('vm:start', (_e, id) => vmCall(() => vms.start(id)));
+    ipcMain.handle('vm:stop', (_e, id, force) => vmCall(() => vms.stop(id, force === true)));
+    ipcMain.handle('vm:remove', async (_e, id) => {
+      const vm = vms.state().vms.find((v) => v.id === id);
+      if (!vm) return { ok: false, vms: vms.state() };
+      const { response } = await dialog.showMessageBox(launcher, {
+        type: 'warning',
+        title: product.ardp.name,
+        message: `Delete "${vm.name}" and its disk?`,
+        detail: 'Everything stored inside the virtual machine is lost. This cannot be undone.',
+        buttons: ['Delete', 'Cancel'],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true,
+      });
+      if (response !== 0) return { ok: false, cancelled: true, vms: vms.state() };
+      return vmCall(() => vms.remove(id));
+    });
+    ipcMain.handle('vm:open', async (_e, id) => {
+      try {
+        return await openVm(String(id));
+      } catch (err) {
+        return { ok: false, text: err.message };
+      }
+    });
+    ipcMain.handle('vm:browse', async () => {
+      const picked = await dialog.showOpenDialog(launcher, {
+        title: 'Choose an installer',
+        filters: [{ name: 'Disc images', extensions: ['iso', 'img'] }],
+        properties: ['openFile'],
+      });
+      return picked.canceled ? '' : picked.filePaths[0];
+    });
+
     ipcMain.on('app:copy', (_e, text) => clipboard.writeText(String(text || '').slice(0, 4096)));
     ipcMain.handle('app:start-at-login', (_e, on) => {
       config.data.app.startAtLogin = !!on;
@@ -312,8 +405,16 @@ function main() {
   });
   app.on('second-instance', showLauncher);
   app.on('activate', showLauncher);
-  app.on('before-quit', () => {
+  // running vms get a proper shutdown before the app goes away
+  let vmsDown = false;
+  app.on('before-quit', (event) => {
     quitting = true;
+    if (vmsDown || !vms || !vms.state().vms.some((vm) => vm.state !== 'stopped')) return;
+    event.preventDefault();
+    vms.shutdown().finally(() => {
+      vmsDown = true;
+      app.quit();
+    });
   });
   app.on('window-all-closed', () => {
     if (!config || !config.data.host.enabled) app.quit();
@@ -332,7 +433,9 @@ function main() {
 
     const dir = app.getPath('userData');
     config = new Config(dir);
-    hostService = new HostService({ config, dir, version: app.getVersion() });
+    vms = new VmService({ dir });
+    vms.on('change', (state) => toLauncher('vm:state', state));
+    hostService = new HostService({ config, dir, version: app.getVersion(), extraSources: () => vms.sources() });
     registerIpc();
     try {
       await hostService.init();
@@ -348,6 +451,6 @@ function main() {
     refreshTray();
     createLauncher();
 
-    if (selftest) require('./selftest').run({ app, hostService, getLauncher: () => launcher, sessions });
+    if (selftest) require('./selftest')[quiet ? 'runQuiet' : 'run']({ app, hostService, vms, getLauncher: () => launcher, sessions });
   });
 }

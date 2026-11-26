@@ -176,7 +176,53 @@
     }
   }
 
-  async function pump() {
+  // the first picture: pick an encoder with it, then say we're ready
+  async function begin(frame) {
+    // codecs want even sizes
+    const width = frame.displayWidth & ~1;
+    const height = frame.displayHeight & ~1;
+    remember(frame);
+    const chosen = await chooseEncoder(frame, width, height);
+    encoder = chosen.encoder;
+    config = chosen.config;
+    api.ready({ width, height, codec: config.codec, family: chosen.candidate.family, encoder: chosen.candidate.label });
+    setInterval(housekeeping, 40);
+    setInterval(() => {
+      api.stats({ ...counters, bitrate: config.bitrate, paused });
+    }, 1000);
+  }
+
+  function feed(frame) {
+    counters.captured += 1;
+    lastActivity = performance.now();
+    remember(frame);
+    if (!live || failed) {
+      frame.close();
+      return;
+    }
+    // skip, don't queue: a late frame is worth less than the next one
+    if (paused || encoder.encodeQueueSize > 2) {
+      counters.skipped += 1;
+      stale = true;
+      frame.close();
+      return;
+    }
+    stale = false;
+    refine = 3;
+    encode(frame, false);
+    frame.close();
+  }
+
+  async function captureDisplay() {
+    track = await openDisplay();
+    track.addEventListener('ended', () => api.ended());
+    reader = new MediaStreamTrackProcessor({ track, maxBufferSize: 2 }).readable.getReader();
+
+    const first = await reader.read();
+    if (first.done) throw new Error('The display produced no picture.');
+    await begin(first.value);
+    first.value.close();
+
     for (;;) {
       let result;
       try {
@@ -189,26 +235,40 @@
         api.ended();
         return;
       }
-      const frame = result.value;
-      counters.captured += 1;
-      lastActivity = performance.now();
-      remember(frame);
-      if (!live || failed) {
-        frame.close();
-        continue;
-      }
-      // skip, don't queue: a late frame is worth less than the next one
-      if (paused || encoder.encodeQueueSize > 2) {
-        counters.skipped += 1;
-        stale = true;
-        frame.close();
-        continue;
-      }
-      stale = false;
-      refine = 3;
-      encode(frame, false);
-      frame.close();
+      feed(result.value);
     }
+  }
+
+  // pictures pushed in from outside (a vm): changed rectangles, then "present"
+  function acceptFrames() {
+    const { width, height } = options;
+    const pixels = new Uint8Array(width * height * 4);
+    let starting = false;
+
+    api.onRect((rect, data) => {
+      const cols = Math.min(rect.width, width - rect.x);
+      const rows = Math.min(rect.height, height - rect.y);
+      if (rect.x < 0 || rect.y < 0 || cols <= 0 || rows <= 0) return;
+      for (let row = 0; row < rows; row++) {
+        const from = row * rect.width * 4;
+        pixels.set(data.subarray(from, from + cols * 4), ((rect.y + row) * width + rect.x) * 4);
+      }
+    });
+
+    api.onPresent(() => {
+      const frame = new VideoFrame(pixels, { format: 'BGRX', codedWidth: width, codedHeight: height, timestamp: nextTimestamp() });
+      if (encoder) {
+        feed(frame);
+      } else if (!starting) {
+        starting = true;
+        begin(frame)
+          .catch((err) => fail(err.message))
+          .finally(() => frame.close());
+      } else {
+        remember(frame);
+        frame.close();
+      }
+    });
   }
 
   // the capturer only fires when the screen changes, so the last frame is re-sent
@@ -232,29 +292,8 @@
   api.onStart(async (startOptions) => {
     options = startOptions;
     try {
-      track = await openDisplay();
-      track.addEventListener('ended', () => api.ended());
-      const processor = new MediaStreamTrackProcessor({ track, maxBufferSize: 2 });
-      reader = processor.readable.getReader();
-
-      const first = await reader.read();
-      if (first.done) throw new Error('The display produced no picture.');
-      const frame = first.value;
-      // codecs want even sizes
-      const width = frame.displayWidth & ~1;
-      const height = frame.displayHeight & ~1;
-      remember(frame);
-      const chosen = await chooseEncoder(frame, width, height);
-      frame.close();
-
-      encoder = chosen.encoder;
-      config = chosen.config;
-      api.ready({ width, height, codec: config.codec, family: chosen.candidate.family, encoder: chosen.candidate.label });
-      pump();
-      setInterval(housekeeping, 40);
-      setInterval(() => {
-        api.stats({ ...counters, bitrate: config.bitrate, paused });
-      }, 1000);
+      if (options.mode === 'frames') acceptFrames();
+      else await captureDisplay();
     } catch (err) {
       fail(err && err.message ? err.message : String(err));
     }

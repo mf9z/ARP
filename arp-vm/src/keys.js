@@ -1,0 +1,83 @@
+'use strict';
+
+// event.code -> [pc scancode (set 1, e0xx for extended keys), x11 keysym].
+// qemu takes the scancode; the keysym is the fallback for plain vnc servers
+const KEYS = {
+  Escape: [0x01, 0xff1b],
+  Minus: [0x0c, 0x2d],
+  Equal: [0x0d, 0x3d],
+  Backspace: [0x0e, 0xff08],
+  Tab: [0x0f, 0xff09],
+  BracketLeft: [0x1a, 0x5b],
+  BracketRight: [0x1b, 0x5d],
+  Enter: [0x1c, 0xff0d],
+  ControlLeft: [0x1d, 0xffe3],
+  Semicolon: [0x27, 0x3b],
+  Quote: [0x28, 0x27],
+  Backquote: [0x29, 0x60],
+  ShiftLeft: [0x2a, 0xffe1],
+  Backslash: [0x2b, 0x5c],
+  Comma: [0x33, 0x2c],
+  Period: [0x34, 0x2e],
+  Slash: [0x35, 0x2f],
+  ShiftRight: [0x36, 0xffe2],
+  NumpadMultiply: [0x37, 0xffaa],
+  AltLeft: [0x38, 0xffe9],
+  Space: [0x39, 0x20],
+  CapsLock: [0x3a, 0xffe5],
+  NumLock: [0x45, 0xff7f],
+  ScrollLock: [0x46, 0xff14],
+  Numpad7: [0x47, 0xffb7],
+  Numpad8: [0x48, 0xffb8],
+  Numpad9: [0x49, 0xffb9],
+  NumpadSubtract: [0x4a, 0xffad],
+  Numpad4: [0x4b, 0xffb4],
+  Numpad5: [0x4c, 0xffb5],
+  Numpad6: [0x4d, 0xffb6],
+  NumpadAdd: [0x4e, 0xffab],
+  Numpad1: [0x4f, 0xffb1],
+  Numpad2: [0x50, 0xffb2],
+  Numpad3: [0x51, 0xffb3],
+  Numpad0: [0x52, 0xffb0],
+  NumpadDecimal: [0x53, 0xffae],
+  IntlBackslash: [0x56, 0x3c],
+  F11: [0x57, 0xffc8],
+  F12: [0x58, 0xffc9],
+
+  NumpadEnter: [0xe01c, 0xff8d],
+  ControlRight: [0xe01d, 0xffe4],
+  NumpadDivide: [0xe035, 0xffaf],
+  PrintScreen: [0xe037, 0xff61],
+  AltRight: [0xe038, 0xffea],
+  Home: [0xe047, 0xff50],
+  ArrowUp: [0xe048, 0xff52],
+  PageUp: [0xe049, 0xff55],
+  ArrowLeft: [0xe04b, 0xff51],
+  ArrowRight: [0xe04d, 0xff53],
+  End: [0xe04f, 0xff57],
+  ArrowDown: [0xe050, 0xff54],
+  PageDown: [0xe051, 0xff56],
+  Insert: [0xe052, 0xff63],
+  Delete: [0xe053, 0xffff],
+  MetaLeft: [0xe05b, 0xffeb],
+  MetaRight: [0xe05c, 0xffec],
+  ContextMenu: [0xe05d, 0xff67],
+};
+
+const rows = { 0x10: 'QWERTYUIOP', 0x1e: 'ASDFGHJKL', 0x2c: 'ZXCVBNM' };
+for (const [first, letters] of Object.entries(rows)) {
+  [...letters].forEach((letter, i) => {
+    KEYS[`Key${letter}`] = [Number(first) + i, letter.toLowerCase().charCodeAt(0)];
+  });
+}
+'1234567890'.split('').forEach((digit, i) => {
+  KEYS[`Digit${digit}`] = [0x02 + i, digit.charCodeAt(0)];
+});
+for (let f = 1; f <= 10; f++) KEYS[`F${f}`] = [0x3a + f, 0xffbd + f];
+
+function lookup(code) {
+  const hit = KEYS[code];
+  return hit ? { scancode: hit[0], keysym: hit[1] } : null;
+}
+
+module.exports = { lookup, KEYS };

@@ -17,11 +17,13 @@
     "icons": "electron scripts/make-icons.js",
     "test": "node --test",
     "selftest": "electron . --selftest",
+    "selftest:vm": "electron . --selftest-vm",
     "dist": "electron-builder",
     "dist:dir": "electron-builder --dir"
   },
   "dependencies": {
     "@nut-tree-fork/libnut": "^4.2.6",
+    "arp-vm": "file:../arp-vm",
     "selfsigned": "^5.5.0"
   },
   "devDependencies": {

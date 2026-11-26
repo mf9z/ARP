@@ -204,6 +204,14 @@
     });
     setConnecting(false);
     setStatus('Ready');
+    if (result.choose) {
+      showChooser(result.choose);
+      return;
+    }
+    connected(result);
+  });
+
+  function connected(result) {
     if (result.ok) {
       code.value = '';
       return;
@@ -213,7 +221,90 @@
     const target = result.field === 'code' ? code : address;
     target.focus();
     target.select();
-  });
+  }
+
+  // list boxes: one selected row, arrow keys move it
+  function listbox(el, onChange, onOpen) {
+    let selected = null;
+    const rows = () => [...el.querySelectorAll('li[data-id]')];
+    const select = (id) => {
+      selected = rows().some((r) => r.dataset.id === id) ? id : null;
+      for (const r of rows()) r.setAttribute('aria-selected', String(r.dataset.id === selected));
+      onChange(selected);
+    };
+    el.addEventListener('click', (e) => {
+      const row = e.target.closest('li[data-id]');
+      if (row) select(row.dataset.id);
+    });
+    el.addEventListener('dblclick', (e) => {
+      if (e.target.closest('li[data-id]') && onOpen) onOpen(selected);
+    });
+    el.addEventListener('keydown', (e) => {
+      const list = rows();
+      const at = list.findIndex((r) => r.dataset.id === selected);
+      if (e.key === 'ArrowDown' && list.length) select(list[Math.min(list.length - 1, at + 1)].dataset.id);
+      else if (e.key === 'ArrowUp' && list.length) select(list[Math.max(0, at - 1)].dataset.id);
+      else if (e.key === 'Enter' && selected && onOpen) onOpen(selected);
+      else return;
+      e.preventDefault();
+    });
+    return {
+      get selected() {
+        return selected;
+      },
+      select,
+      fill(items, empty) {
+        el.replaceChildren(
+          ...(items.length
+            ? items.map((item) => {
+                const li = document.createElement('li');
+                li.setAttribute('role', 'option');
+                li.dataset.id = item.id;
+                const what = document.createElement('span');
+                what.className = 'what';
+                what.textContent = item.name;
+                const state = document.createElement('span');
+                state.className = 'state';
+                state.textContent = item.state || '';
+                li.append(what, state);
+                return li;
+              })
+            : [Object.assign(document.createElement('li'), { className: 'empty', textContent: empty })]),
+        );
+        select(selected || (items[0] && items[0].id));
+      },
+    };
+  }
+
+  // a host with virtual machines asks which one to open
+  const chooser = listbox($('chooser-list'), (id) => ($('chooser-open').disabled = !id), pickSource);
+  const VM_STATE = { stopped: 'off', starting: 'starting', running: 'running', stopping: 'shutting down' };
+
+  function showChooser(choice) {
+    $('chooser-name').textContent = choice.name;
+    chooser.fill(
+      choice.sources.map((s) => ({
+        id: s.id,
+        name: s.kind === 'vm' ? s.name : `${s.name} (the desktop)`,
+        state: s.kind === 'vm' ? `virtual machine, ${VM_STATE[s.state] || s.state}` : '',
+      })),
+      '',
+    );
+    $('connect-form').hidden = true;
+    $('chooser').hidden = false;
+    $('chooser-list').focus();
+  }
+
+  async function pickSource(id) {
+    $('chooser').hidden = true;
+    $('connect-form').hidden = false;
+    if (id) setStatus('Opening…');
+    const result = await api.choose(id);
+    setStatus('Ready');
+    connected(result);
+  }
+  $('chooser-open').addEventListener('click', () => pickSource(chooser.selected));
+  $('chooser-cancel').addEventListener('click', () => pickSource(null));
 
   function renderClient() {
     $('quality').value = state.client.quality;
@@ -314,6 +405,98 @@
   $('start-at-login').checked = state.startAtLogin;
   $('start-at-login').addEventListener('change', (e) => api.startAtLogin(e.target.checked));
 
+  let vms = state.vms;
+  const vmList = listbox($('vm-list'), renderVmButtons, (id) => openVm(id));
+  const currentVm = () => vms.vms.find((vm) => vm.id === vmList.selected);
+
+  function vmMessage(text) {
+    $('vm-message-text').textContent = text || '';
+    $('vm-message').hidden = !text;
+  }
+
+  function renderVmButtons() {
+    const vm = currentVm();
+    $('vm-new').disabled = !vms.available;
+    $('vm-open').disabled = !vm || vm.state === 'stopping';
+    $('vm-remove').disabled = !vm || vm.state !== 'stopped';
+    const power = $('vm-power');
+    power.disabled = !vm || vm.state === 'starting';
+    power.textContent = !vm || vm.state === 'stopped' ? 'Start' : vm.state === 'stopping' ? 'Turn off' : vm.state === 'starting' ? 'Starting' : 'Shut down';
+  }
+
+  function renderVms(next) {
+    vms = next;
+    $('vm-hint').textContent = vms.available
+      ? 'Open them here, or from another computer like any desktop.'
+      : 'This needs QEMU, which is not installed on this computer.';
+    vmList.fill(
+      vms.vms.map((vm) => ({ id: vm.id, name: vm.name, state: vm.error && vm.state === 'stopped' ? 'could not start' : VM_STATE[vm.state] })),
+      vms.available ? 'No virtual machines yet. Press New to make one.' : 'Install QEMU from qemu.org, then open ARDP again.',
+    );
+    renderVmButtons();
+  }
+
+  async function vmCall(promise) {
+    vmMessage('');
+    const result = await promise;
+    if (result.vms) renderVms(result.vms);
+    if (!result.ok && !result.cancelled) vmMessage(result.text);
+    return result;
+  }
+
+  async function openVm(id) {
+    if (!id) return;
+    vmMessage('');
+    setStatus('Opening…');
+    const result = await api.vm.open(id);
+    setStatus('Ready');
+    if (!result.ok && !result.cancelled) vmMessage(result.text);
+  }
+
+  $('vm-open').addEventListener('click', () => openVm(vmList.selected));
+  $('vm-power').addEventListener('click', () => {
+    const vm = currentVm();
+    if (!vm) return;
+    if (vm.state === 'stopped') vmCall(api.vm.start(vm.id));
+    else vmCall(api.vm.stop(vm.id, vm.state === 'stopping'));
+  });
+  $('vm-remove').addEventListener('click', () => {
+    if (currentVm()) vmCall(api.vm.remove(vmList.selected));
+  });
+
+  const showVmForm = (show) => {
+    $('vm-form').hidden = !show;
+    $('vm-new').disabled = show || !vms.available;
+    if (show) $('vm-name').focus();
+  };
+  $('vm-new').addEventListener('click', () => showVmForm(true));
+  $('vm-cancel').addEventListener('click', () => showVmForm(false));
+  $('vm-browse').addEventListener('click', async () => {
+    const file = await api.vm.browse();
+    if (file) $('vm-iso').value = file;
+  });
+  $('vm-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    $('vm-create').disabled = true;
+    const result = await vmCall(
+      api.vm.create({
+        name: $('vm-name').value,
+        memory: Number($('vm-memory').value),
+        cpus: Number($('vm-cpus').value),
+        diskGb: Number($('vm-disk').value),
+        iso: $('vm-iso').value,
+      }),
+    );
+    $('vm-create').disabled = false;
+    if (!result.ok) return;
+    $('vm-name').value = '';
+    $('vm-iso').value = '';
+    showVmForm(false);
+  });
+
+  api.onVms(renderVms);
+  renderVms(vms);
+
   $('about-fingerprint').textContent = state.host.fingerprint;
 
   api.onHost(renderHost);
@@ -321,6 +504,7 @@
     state = next;
     renderClient();
     renderHost(state.host);
+    renderVms(state.vms);
     setStatus('Ready');
   });
 

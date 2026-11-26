@@ -38,7 +38,7 @@ A session is a title bar and the other desktop. That's the whole window.
 | folder                                       | what it is | state |
 |----------------------------------------------|------------|-------|
 | [`ardp`](ardp)                               | Aesthetic Remote Desktop Protocol. The app: connect to a computer, or let one connect to you | works |
-| [`arp-vm`](arp-vm)                           | virtual machines on QEMU that you open like any other computer | next |
+| [`arp-vm`](arp-vm)                           | virtual machines on QEMU that you open like any other computer | built, not yet run on real QEMU |
 
 ## Install
 

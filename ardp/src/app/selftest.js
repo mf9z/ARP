@@ -244,3 +244,107 @@ async function inputChecks({ hostService, launcher, sessions, host, log, sleep, 
   log(`key map: ${Object.keys(KEYS).length} keys checked, ${rejected.length} rejected${rejected.length ? `: ${rejected.join(', ')}` : ''}`);
   if (rejected.length) throw new Error('the key map names keys the input backend does not know');
 }
+
+// the vm path through the real app, with a stand-in for qemu and no window ever shown.
+// run: npm run selftest:vm
+exports.runQuiet = async ({ app, hostService, vms, getLauncher, sessions }) => {
+  const log = (...args) => console.log('[selftest]', ...args);
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const js = (win, code) => win.webContents.executeJavaScript(code, true);
+  const click = (win, id) => js(win, `document.getElementById(${JSON.stringify(id)}).click()`);
+  const until = async (what, test, timeout = 15000) => {
+    const end = Date.now() + timeout;
+    for (;;) {
+      const value = await test();
+      if (value) return value;
+      if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
+      await sleep(100);
+    }
+  };
+  const problems = [];
+  const expect = (ok, what) => {
+    log(`${ok ? 'ok  ' : 'FAIL'} ${what}`);
+    if (!ok) problems.push(what);
+  };
+  const menuText = (win) => js(win, `[...document.querySelectorAll('#menu li')].map((li) => li.textContent.trim()).filter(Boolean).join(' | ')`);
+  const menuClick = (win, text) =>
+    js(win, `[...document.querySelectorAll('#menu li')].find((li) => li.textContent.trim() === ${JSON.stringify(text)}).click()`);
+
+  try {
+    const launcher = getLauncher();
+    await until('the launcher page', () => !launcher.webContents.isLoading());
+    await sleep(400);
+    expect(!launcher.isVisible(), 'the launcher stays hidden');
+    expect(await js(launcher, `document.getElementById('vm-new').disabled === false`), 'virtual machines are available');
+
+    const made = await js(launcher, `window.ardp.vm.create({ name: 'Quiet VM', memory: 1024, cpus: 1, diskGb: 4, iso: '' })`);
+    expect(made.ok && made.vms.vms.length === 1 && made.vms.vms[0].state === 'stopped', `a vm can be created: ${JSON.stringify(made.vms.vms)}`);
+    const bad = await js(launcher, `window.ardp.vm.create({ name: 'Quiet VM' })`);
+    expect(!bad.ok && /already/.test(bad.text), `a second one with the same name is refused: ${bad.text}`);
+    await until('the vm in the list', () => js(launcher, `document.querySelectorAll('#vm-list li[data-id]').length === 1`));
+
+    // open it from the virtual machines tab, as its owner would
+    await click(launcher, 'tab-vms');
+    await click(launcher, 'vm-open');
+    await until('a session window', () => sessions.size === 1);
+    const session = [...sessions][0];
+    await until('the vm picture', async () => (await js(session.win, 'window.ardpStats ? window.ardpStats.frames : 0')) >= 5);
+    const vm = vms.store.get('quiet-vm');
+    expect(!session.win.isVisible(), 'the session window stays hidden');
+    expect(vm.state === 'running', 'opening the vm switched it on');
+    expect(session.win.getTitle() === 'Quiet VM - this computer - ARDP', `title: ${session.win.getTitle()}`);
+    expect(session.opened.kind === 'vm' && session.opened.control, `a vm on this computer can be controlled: ${JSON.stringify(session.opened)}`);
+    await until('the vm listed as running', () => js(launcher, `document.querySelector('#vm-list .state').textContent === 'running'`));
+
+    await click(session.win, 'sysmenu');
+    const menu = await menuText(session.win);
+    expect(/Send Ctrl\+Alt\+Del \| Restart \| Shut down \| Disconnect$/.test(menu), `the window menu offers the vm's actions: ${menu}`);
+    await vm.qmp.execute('x-fake-events');
+    await menuClick(session.win, 'Send Ctrl+Alt+Del');
+    await js(session.win, `window.ardpSession.input({ t: 'move', x: 1, y: 1 })`);
+    await sleep(300);
+    const events = await vm.qmp.execute('x-fake-events');
+    const typed = events.filter((e) => e.t === 'xkey').map((e) => `${e.code}${e.down ? '+' : '-'}`).join(' ');
+    const pointer = events.filter((e) => e.t === 'pointer').map((e) => [e.x, e.y]);
+    expect(typed === '29+ 56+ 211+ 211- 56- 29-', `ctrl+alt+del reaches the vm: ${typed}`);
+    expect(JSON.stringify(pointer) === JSON.stringify([[1023, 767]]), `the pointer reaches the vm's bottom right corner: ${JSON.stringify(pointer)}`);
+
+    await click(session.win, 'sysmenu');
+    await menuClick(session.win, 'Shut down');
+    const ended = await until('the session to end', () => js(session.win, `document.getElementById('notice').hidden ? '' : document.getElementById('notice-text').textContent`));
+    expect(ended === 'The remote session ended.' && vm.state === 'stopped', `shutting down from the menu ends the session and stops the vm: "${ended}", ${vm.state}`);
+    session.win.close();
+    await until('the session to close', () => sessions.size === 0);
+
+    // from "another computer": the host now offers its desktop and the vm, so the launcher asks
+    hostService.config.data.host.port = PORT;
+    hostService.config.data.host.bind = '127.0.0.1';
+    await hostService.setEnabled(true);
+    const port = hostService.host.server.address().port;
+    await click(launcher, 'tab-connect');
+    await js(launcher, `(() => { const set = (id, v) => { const el = document.getElementById(id); el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); }; set('address', '127.0.0.1:${port}'); set('code', ${JSON.stringify(hostService.code)}); })()`);
+    await click(launcher, 'connect');
+    await until('the chooser', () => js(launcher, `!document.getElementById('chooser').hidden`));
+    const offered = await js(launcher, `[...document.querySelectorAll('#chooser-list li')].map((li) => li.textContent).join(' | ')`);
+    expect(/the desktop/.test(offered) && /Quiet VMvirtual machine, off/.test(offered), `the launcher asks what to open: ${offered}`);
+    await js(launcher, `document.querySelector('#chooser-list li[data-id="vm:quiet-vm"]').click()`);
+    await click(launcher, 'chooser-open');
+    await until('the vm session', () => sessions.size === 1);
+    const remote = [...sessions][0];
+    await until('its picture', async () => (await js(remote.win, 'window.ardpStats ? window.ardpStats.frames : 0')) >= 5);
+    expect(remote.opened.kind === 'vm' && remote.target.source === 'vm:quiet-vm', `the chosen vm opens: ${remote.win.getTitle()}`);
+    expect(hostService.host.list().some((s) => s.source === 'vm:quiet-vm'), 'the host lists the session');
+    remote.win.close();
+    await until('the session to close', () => sessions.size === 0);
+
+    await vms.stop('quiet-vm', true);
+    await vms.remove('quiet-vm');
+    expect(vms.state().vms.length === 0, 'the vm can be removed once it is off');
+  } catch (err) {
+    log('FAILED', err.stack || err.message);
+    problems.push(err.message);
+  }
+  await vms.shutdown().catch(() => {});
+  log(problems.length ? `${problems.length} PROBLEM(S)` : 'PASSED');
+  app.exit(problems.length ? 1 : 0);
+};

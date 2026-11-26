@@ -25,6 +25,7 @@ class SourceStream extends EventEmitter {
   tune(settings) {}
   input(event) {}
   clipboard(text) {}
+  action(name) {}
   close() {}
 }
 

@@ -26,7 +26,9 @@ const T = Object.freeze({
 
   PING: 0x50,
   PONG: 0x51,
-  // 0x60-0x7f is kept for arp (vm control)
+
+  // 0x60-0x7f is arp's: things a source can do besides showing a screen
+  ACTION: 0x60,
 });
 
 const EMPTY = Buffer.alloc(0);

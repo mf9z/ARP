@@ -5,4 +5,63 @@
 A VM shows up on a host as one more thing you can connect to, next to its
 desktop. Same protocol, same session window.
 
-Nothing here yet.
+This is the part that runs the VMs. It has no UI of its own: [ardp](../ardp)
+shows them in its **Virtual machines** tab and carries their screen.
+
+## Needs
+
+[QEMU](https://www.qemu.org/download/) on the computer that runs the VMs:
+`qemu-system-x86_64` and `qemu-img`, on the `PATH` or in the usual install
+folder. Set `ARP_QEMU` to point somewhere else. Nothing is needed on the
+computers that only connect.
+
+## How it works
+
+1. A VM is a folder with a `vm.json` and a qcow2 disk made by `qemu-img`.
+2. Starting one runs QEMU with no window of its own. Its screen and its
+   control socket listen on this computer only.
+3. `VmDisplay` reads the screen from there and hands changed rectangles to
+   ardp, which encodes them like a desktop.
+4. Mouse and keys arrive as ardp input events and go into the guest: absolute
+   pointer positions and physical key scancodes, so the guest's own keyboard
+   layout decides what is typed.
+5. Shut down presses the guest's power button. If it ignores that for 30
+   seconds it is switched off.
+
+## Use
+
+```js
+const { VmStore } = require('arp-vm');
+
+const store = new VmStore('/path/to/vms');
+const vm = await store.create({ name: 'Ubuntu', memory: 4096, cpus: 2, diskGb: 64, iso: '/isos/ubuntu.iso' });
+await vm.start();
+
+const display = await vm.display();
+display.on('rect', ({ x, y, width, height, data }) => {});   // b g r x pixels
+display.on('frame', () => {});                                // an update is complete
+display.refresh();
+display.input({ t: 'key', code: 'Enter', down: true });
+
+await vm.stop();
+```
+
+## Development
+
+```sh
+npm test
+```
+
+The tests don't need QEMU. `dev/fake-qemu.js` stands in for it: it takes the
+same arguments, serves a test picture as the VM's screen and answers the
+control socket. `ARP_FAKE_QEMU=1` makes the ardp app use it too.
+
+## Limits
+
+- Not run against real QEMU yet. Everything is tested with the stand-in.
+- x86-64 guests only.
+- No sound and no clipboard between the guest and you.
+- The VM's screen socket has no password. It only listens on this computer,
+  but any program running here can reach it, so don't use it on a shared
+  machine yet.
+- If the app is killed, its VMs keep running until you end the QEMU processes.

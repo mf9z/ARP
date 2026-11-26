@@ -1,17 +1,12 @@
 'use strict';
 
-const path = require('path');
-const { BrowserWindow, desktopCapturer, screen, clipboard, systemPreferences } = require('electron');
+const { desktopCapturer, screen, clipboard, systemPreferences } = require('electron');
 const { Source, SourceStream } = require('../../host/source');
 const { ArdpError } = require('../../protocol/errors');
+const { Encoder } = require('./encoder');
+const quality = require('./quality');
 
 const MAX_CLIPBOARD = 1024 * 1024;
-
-const QUALITY = {
-  low: { bpp: 0.035, fps: 30 },
-  balanced: { bpp: 0.09, fps: 60 },
-  high: { bpp: 0.22, fps: 60 },
-};
 
 const pixelSize = (display) => ({
   width: Math.round(display.size.width * display.scaleFactor),
@@ -77,24 +72,30 @@ class DesktopStream extends SourceStream {
     this.display = display;
     this.index = index;
     this.request = request;
-    this.win = null;
+    this.encoder = null;
     this.closed = false;
-    this.encoder = '';
-    this.stats = null;
     this._clip = null;
     this._clipTimer = null;
     this._onMetrics = null;
 
     const size = pixelSize(display);
-    const quality = QUALITY[request.quality] || QUALITY.balanced;
-    this.fps = quality.fps;
-    const max = Math.round(Math.min(80e6, Math.max(1.5e6, size.width * size.height * 60 * quality.bpp)));
-    this.bitrate = { start: max, min: Math.min(500_000, max), max };
+    const { fps, bitrate } = quality.plan(request.quality, size.width, size.height);
+    this.fps = fps;
+    this.bitrate = bitrate;
 
     // over loopback the pointer would chase itself, so those sessions only watch
     const loopback = request.peer.loopback && process.env.ARDP_LOOPBACK_INPUT !== '1';
     const control = !request.viewOnly && !!source.input && source.allowControl() && !loopback;
-    this.info = { source: 'desktop', name: source.name, display: String(display.id), width: size.width, height: size.height, control };
+    this.info = {
+      source: 'desktop',
+      kind: 'desktop',
+      name: source.name,
+      display: String(display.id),
+      width: size.width,
+      height: size.height,
+      control,
+      actions: [],
+    };
     this.rect = inputRect(display);
   }
 
@@ -104,36 +105,8 @@ class DesktopStream extends SourceStream {
     const picked = sources.find((s) => s.display_id && s.display_id === String(this.display.id)) || sources[this.index] || sources[0];
     if (!picked) throw new ArdpError('capture_failed', 'That computer has no display to share.');
 
-    this.win = new BrowserWindow({
-      show: false,
-      width: 320,
-      height: 200,
-      skipTaskbar: true,
-      focusable: false,
-      webPreferences: {
-        preload: path.join(__dirname, '..', 'preload', 'capture.js'),
-        contextIsolation: true,
-        sandbox: true,
-        backgroundThrottling: false,
-      },
-    });
-    const contents = this.win.webContents;
-    const ipc = contents.ipc;
-
-    const ready = new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new ArdpError('capture_failed', 'Screen capture did not start in time.')), 15000);
-      const stop = (fn) => (value) => {
-        clearTimeout(timer);
-        fn(value);
-      };
-      ipc.once('capture:ready', (_e, info) => stop(resolve)(info));
-      ipc.once('capture:error', (_e, message) => stop(reject)(new ArdpError('capture_failed', String(message))));
-      contents.once('render-process-gone', () => stop(reject)(new ArdpError('capture_failed', 'Screen capture stopped unexpectedly.')));
-    });
-    ready.catch(() => {});
-
-    await this.win.loadFile(path.join(__dirname, '..', 'ui', 'capture.html'));
-    contents.send('capture:start', {
+    const encoder = await Encoder.open({
+      mode: 'display',
       sourceId: picked.id,
       width: size.width,
       height: size.height,
@@ -141,29 +114,21 @@ class DesktopStream extends SourceStream {
       bitrate: this.bitrate.start,
       codecs: this.request.codecs,
     });
-
-    const info = await ready;
-    this.info.width = info.width;
-    this.info.height = info.height;
-    this.encoder = info.encoder;
-    this._config = { codec: info.codec, width: info.width, height: info.height };
-
-    ipc.on('capture:frame', (_e, meta, data) => {
-      if (this.closed) return;
-      this.emit('frame', meta, Buffer.from(data.buffer, data.byteOffset, data.byteLength));
-    });
-    ipc.on('capture:stats', (_e, stats) => {
-      this.stats = stats;
-    });
-    ipc.on('capture:error', () => this.finish('capture_failed'));
-    ipc.on('capture:ended', () => this.finish('capture_failed'));
-    contents.on('render-process-gone', () => this.finish('capture_failed'));
+    if (this.closed) {
+      encoder.close();
+      throw new ArdpError('replaced', 'Another session took over.');
+    }
+    this.encoder = encoder;
+    this.info.width = encoder.width;
+    this.info.height = encoder.height;
+    encoder.on('frame', (meta, data) => this.emit('frame', meta, data));
+    encoder.on('failed', () => this.finish('capture_failed'));
   }
 
   start() {
     if (this.closed) return;
-    this.emit('config', this._config);
-    this.win.webContents.send('capture:go');
+    this.emit('config', this.encoder.config);
+    this.encoder.go();
 
     this._onMetrics = (_e, display, changed) => {
       if (display.id !== this.display.id) return;
@@ -183,11 +148,11 @@ class DesktopStream extends SourceStream {
   }
 
   requestKeyframe() {
-    if (!this.closed) this.win.webContents.send('capture:key');
+    if (this.encoder) this.encoder.key();
   }
 
   tune(settings) {
-    if (!this.closed) this.win.webContents.send('capture:tune', settings);
+    if (this.encoder) this.encoder.tune(settings);
   }
 
   input(event) {
@@ -235,8 +200,7 @@ class DesktopStream extends SourceStream {
     if (this._onMetrics) screen.removeListener('display-metrics-changed', this._onMetrics);
     if (this.info.control && this.source.input) this.source.input.releaseAll();
     if (this.source.active === this) this.source.active = null;
-    if (this.win && !this.win.isDestroyed()) this.win.destroy();
-    this.win = null;
+    if (this.encoder) this.encoder.close();
   }
 
   _move({ x, y }) {

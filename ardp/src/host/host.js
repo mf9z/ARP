@@ -260,6 +260,12 @@ class HostSession {
         if (typeof text === 'string' && text.length <= MAX_CLIPBOARD) this.stream.clipboard(text);
         return;
       }
+      case T.ACTION: {
+        if (!this.stream || !this.stream.info.control) return;
+        const { action } = wire.parseJson(payload);
+        if (typeof action === 'string' && action.length <= 32) this.stream.action(action);
+        return;
+      }
       // unknown types are skipped so newer clients still work
       default:
         return;

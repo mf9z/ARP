@@ -118,6 +118,10 @@ class ArdpClient extends EventEmitter {
     if (this.channel && !this._closed) this.channel.send(T.VIDEO_KEY);
   }
 
+  sendAction(action) {
+    if (this.channel && !this._closed) this.channel.sendJson(T.ACTION, { action });
+  }
+
   sendClipboard(text) {
     if (this.channel && !this._closed) this.channel.sendJson(T.CLIPBOARD, { text });
   }

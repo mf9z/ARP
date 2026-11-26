@@ -30,7 +30,7 @@ An empty payload is read as `{}`. Unknown message types and unknown JSON members
 | `0x04` | WELCOME | H → C | `{ proof, sources: [Source] }` |
 | `0x05` | ERROR | both | `{ code, message }`; the sender closes afterwards |
 | `0x10` | OPEN | C → H | `{ source?, display?, codecs: [family], quality, viewOnly }` |
-| `0x11` | OPENED | H → C | `{ source, name, display, width, height, control }` |
+| `0x11` | OPENED | H → C | `{ source, kind, name, display, width, height, control, actions }` |
 | `0x12` | CLOSE | both | `{ reason }`; the sender closes afterwards |
 | `0x20` | VIDEO_CONFIG | H → C | `{ codec, width, height, description? }` |
 | `0x21` | VIDEO_FRAME | H → C | binary, below |
@@ -40,9 +40,10 @@ An empty payload is read as `{}`. Unknown message types and unknown JSON members
 | `0x40` | CLIPBOARD | both | `{ text }`; at most 1 MiB |
 | `0x50` | PING | both | `{ t }` |
 | `0x51` | PONG | both | the PING payload, unchanged |
-| `0x60`–`0x7F` | reserved | | ARP virtual-machine lifecycle |
+| `0x60` | ACTION | C → H | `{ action }`; one of the names in `OPENED.actions` |
+| `0x61`–`0x7F` | reserved | | more of ARP |
 
-`nonce`, `salt` and `proof` are base64. `Source` is `{ id, kind: "desktop" | "vm", name, displays: [{ id, name, width, height, primary }] }`. Display ids are strings.
+`nonce`, `salt` and `proof` are base64. `Source` is `{ id, kind: "desktop" | "vm", name, state?, displays: [{ id, name, width, height, primary }] }`. Display ids are strings. A virtual machine has a `state`: `stopped`, `starting`, `running` or `stopping`.
 
 ## Handshake and authentication
 
@@ -74,7 +75,11 @@ After WELCOME the client sends one OPEN. `source` picks an entry from `sources` 
 
 The host answers OPENED, then VIDEO_CONFIG, then frames. `control` says whether the host will accept INPUT; it is false when the client asked for `viewOnly`, when the host only allows watching, and for a desktop shared with a client on the same machine.
 
-A desktop source serves one session at a time. A newer session takes over; the older one gets `CLOSE replaced`.
+A source serves one session at a time. A newer session takes over; the older one gets `CLOSE replaced`.
+
+**Virtual machines.** Opening a virtual machine that is off switches it on. It can be controlled from the same machine too, since its input goes to the guest and not to the host's desktop.
+
+**Actions.** `OPENED.actions` lists what the source can do besides showing a screen, and ACTION asks for one. A virtual machine offers `ctrl-alt-del`, `restart` and `shutdown`; a desktop offers none. The host ignores ACTION when `control` is false and for names it did not list.
 
 ## Video
 
@@ -128,5 +133,6 @@ Used in `ERROR.code` and `CLOSE.reason`.
 | `replaced` | another session took over the source |
 | `kicked` | the host's user ended the session |
 | `host_stopped` | the host stopped accepting connections |
+| `source_ended` | the source stopped, for example a virtual machine shut down |
 | `closed` | the client hung up |
 | `timeout`, `internal` | as named |

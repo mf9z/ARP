@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('ardpSession', {
   keyframe: () => ipcRenderer.send('session:keyframe'),
   reconnect: () => ipcRenderer.send('session:reconnect'),
   display: (id) => ipcRenderer.send('session:display', id),
+  action: (name) => ipcRenderer.send('session:action', name),
   window: (action) => ipcRenderer.send('window:action', action),
 
   onInit: on('session:init'),

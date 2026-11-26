@@ -28,15 +28,17 @@ function localAddresses() {
 }
 
 class HostService extends EventEmitter {
-  constructor({ config, dir, version }) {
+  constructor({ config, dir, version, extraSources }) {
     super();
     this.config = config;
+    this.extraSources = extraSources || (() => []);
     this.dir = dir;
     this.name = os.hostname();
     this.info = { name: this.name, platform: process.platform, version };
     this.input = NativeInput.load();
     this.identity = null;
     this.host = null;
+    this.local = null;
     this.code = null;
     this.credential = null;
     this.error = null;
@@ -57,12 +59,15 @@ class HostService extends EventEmitter {
       input: this.input,
       allowControl: () => this.config.data.host.allowControl !== false,
     });
-    this.host = new ArdpHost({
+    const options = {
       identity: this.identity,
       info: this.info,
       credential: () => this.credential,
-      sources: () => [desktop],
-    });
+      sources: () => [desktop, ...this.extraSources()],
+    };
+    this.host = new ArdpHost(options);
+    // a second listener on loopback only, for opening this computer's own vms
+    this.local = new ArdpHost(options);
     for (const event of ['session', 'session-end', 'stream']) this.host.on(event, () => this._changed());
     this.host.on('error', (err) => {
       this.error = err.message;
@@ -126,7 +131,13 @@ class HostService extends EventEmitter {
     if (this.host) this.host.disconnect(id, 'kicked');
   }
 
+  async localPort() {
+    if (!this.local.listening) await this.local.listen(0, '127.0.0.1');
+    return this.local.server.address().port;
+  }
+
   async shutdown() {
+    if (this.local) await this.local.close();
     if (this.host) await this._stop();
   }
 

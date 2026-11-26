@@ -254,9 +254,29 @@
     anchor.after(...items, rule);
   }
 
+  // what the other side can do besides showing a screen: a vm offers restart, shut down...
+  const ACTIONS = { 'ctrl-alt-del': 'Send Ctrl+Alt+Del', restart: 'Restart', shutdown: 'Shut down' };
+
+  function renderActions() {
+    for (const old of menu.querySelectorAll('.action-item')) old.remove();
+    const names = opened && Array.isArray(opened.actions) ? opened.actions.filter((n) => ACTIONS[n]) : [];
+    const items = names.map((name) => {
+      const li = document.createElement('li');
+      li.className = 'action-item';
+      li.setAttribute('role', 'menuitem');
+      li.setAttribute('aria-disabled', String(!controlling()));
+      li.dataset.action = 'source';
+      li.dataset.name = name;
+      li.textContent = ACTIONS[name];
+      return li;
+    });
+    $('menu-end').before(...items);
+  }
+
   function openMenu() {
     refreshMode();
     renderDisplays();
+    renderActions();
     menu.querySelector('[data-action="fullscreen"]').setAttribute('aria-checked', String(fullscreen));
     const anchor = $('sysmenu').getBoundingClientRect();
     menu.style.left = `${Math.max(0, anchor.left)}px`;
@@ -296,6 +316,9 @@
           releaseAll();
           api.display(item.dataset.display);
         }
+        break;
+      case 'source':
+        api.action(item.dataset.name);
         break;
       case 'send-meta':
         tap('MetaLeft');

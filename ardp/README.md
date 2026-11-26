@@ -70,6 +70,14 @@ studio-pc               a name works too
 | `Ctrl+Alt+Enter`    | full screen. The title bar hides; rest the pointer on the top edge to get it back |
 | copy / paste        | text copied on one side can be pasted on the other |
 
+### Virtual machines
+
+The **Virtual machines** tab makes and runs QEMU guests with [arp-vm](../arp-vm).
+**Open** shows one right here. From another computer, connect to this one as
+usual and pick the VM instead of the desktop, or type `192.168.1.20/vm:name`.
+Opening a VM that is off switches it on, and its window menu gets
+**Send Ctrl+Alt+Del**, **Restart** and **Shut down**.
+
 While a computer accepts connections the app stays in the tray. Windows asks
 about the firewall the first time; to connect over the internet, forward the
 port or use a VPN.
@@ -117,6 +125,7 @@ passes so text ends up sharp. The wire format is in
 ```sh
 npm test            # protocol tests
 npm run selftest    # the real app connects to itself and saves screenshots
+npm run selftest:vm # the vm path with a stand-in for QEMU, no windows shown
 npm run icons       # rebuild the icons from assets/ardp.svg
 ```
 
@@ -131,5 +140,6 @@ npm run icons       # rebuild the icons from assets/ardp.svg
 ## Sources
 
 The host doesn't talk to a desktop directly, it talks to a `Source`
-(`src/host/source.js`). The desktop is the first one. [arp-vm](../arp-vm) adds
-QEMU guests as another: same protocol, same session window.
+(`src/host/source.js`). The desktop is one (`src/app/host/desktop-source.js`).
+A virtual machine is another (`frame-source.js`, fed by [arp-vm](../arp-vm)):
+same encoder, same protocol, same session window.

@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld('ardpCapture', {
   onGo: (fn) => ipcRenderer.on('capture:go', () => fn()),
   onTune: (fn) => ipcRenderer.on('capture:tune', (_e, settings) => fn(settings)),
   onKey: (fn) => ipcRenderer.on('capture:key', () => fn()),
+  onRect: (fn) => ipcRenderer.on('capture:rect', (_e, rect, data) => fn(rect, data)),
+  onPresent: (fn) => ipcRenderer.on('capture:present', () => fn()),
   ready: (info) => ipcRenderer.send('capture:ready', info),
   frame: (meta, data) => ipcRenderer.send('capture:frame', meta, data),
   error: (message) => ipcRenderer.send('capture:error', message),

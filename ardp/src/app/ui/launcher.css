@@ -399,3 +399,80 @@ body.dialog {
 .pane.link:hover {
   background: var(--blue-wash);
 }
+
+.listbox {
+  height: 88px;
+  margin: 0;
+  padding: 1px;
+  overflow-y: auto;
+  list-style: none;
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-top-color: #7d7d7d;
+  outline: none;
+}
+.listbox:focus-visible {
+  border-color: var(--blue-deep);
+}
+.listbox li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 21px;
+  padding: 0 6px;
+  white-space: nowrap;
+}
+.listbox li .what {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.listbox li .state {
+  color: var(--text-dim);
+}
+.listbox li[aria-selected='true'] {
+  background: var(--blue-wash);
+  outline: 1px solid #9bd9f5;
+  outline-offset: -1px;
+}
+.listbox .empty {
+  height: auto;
+  padding: 8px 6px;
+  white-space: normal;
+  color: var(--text-dim);
+}
+
+.chooser {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.chooser p {
+  margin: 0;
+}
+
+#page-vms .actions {
+  margin-top: 0;
+  padding-top: 0;
+  align-self: stretch;
+}
+#vm-form .form {
+  margin-bottom: 10px;
+}
+.units,
+.pick {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.units .field {
+  width: 56px;
+}
+.units #vm-cpus {
+  width: 34px;
+}
+.pick .field {
+  flex: 1;
+  min-width: 0;
+}
