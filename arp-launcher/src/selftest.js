@@ -17,7 +17,7 @@ exports.profileDir = () => {
   return dir;
 };
 
-exports.run = async ({ app, hostService, getLauncher, sessions }) => {
+exports.run = async ({ app, hostService, open, sessions }) => {
   const log = (...args) => console.log('[selftest]', ...args);
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const js = (win, code) => win.webContents.executeJavaScript(code, true);
@@ -42,7 +42,13 @@ exports.run = async ({ app, hostService, getLauncher, sessions }) => {
   const noticeText = (win) => js(win, `document.getElementById('notice').hidden ? '' : document.getElementById('notice-text').textContent`);
 
   try {
-    const launcher = getLauncher();
+    // no questions on screen during a test
+    hostService.config.data.host.askFirst = false;
+    const home = open('home');
+    await until('the home window', () => home.isVisible() && !home.webContents.isLoading());
+    await sleep(700);
+    await shot(home, '0-home.png');
+    const launcher = open('rdp');
     await until('the launcher', () => launcher.isVisible() && !launcher.webContents.isLoading());
     await sleep(700);
     await shot(launcher, '1-connect.png');
@@ -229,7 +235,7 @@ async function inputChecks({ hostService, launcher, sessions, host, log, sleep, 
     delete process.env.ARDP_LOOPBACK_INPUT;
   }
 
-  const { KEYS } = require('./host/keymap');
+  const { KEYS } = require('ardp/src/app/host/keymap');
   // only key-ups are sent, and keys that act on release are left out
   const skip = /^(printscreen|win|right_win|cmd|right_cmd|menu|caps_lock|num_lock|scroll_lock|audio_.*)$/;
   const rejected = [];
@@ -245,13 +251,15 @@ async function inputChecks({ hostService, launcher, sessions, host, log, sleep, 
   if (rejected.length) throw new Error('the key map names keys the input backend does not know');
 }
 
-// the vm path through the real app, with a stand-in for qemu and no window ever shown.
+// everything except the picture on your screen: the home window, the vm manager and
+// the remote desktop window, with a stand-in for qemu and no window ever shown.
 // run: npm run selftest:vm
-exports.runQuiet = async ({ app, hostService, vms, getLauncher, sessions }) => {
+exports.runQuiet = async ({ app, hostService, vms, open, sessions }) => {
   const log = (...args) => console.log('[selftest]', ...args);
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const js = (win, code) => win.webContents.executeJavaScript(code, true);
   const click = (win, id) => js(win, `document.getElementById(${JSON.stringify(id)}).click()`);
+  const text = (win, id) => js(win, `document.getElementById(${JSON.stringify(id)}).textContent`);
   const until = async (what, test, timeout = 15000) => {
     const end = Date.now() + timeout;
     for (;;) {
@@ -261,40 +269,52 @@ exports.runQuiet = async ({ app, hostService, vms, getLauncher, sessions }) => {
       await sleep(100);
     }
   };
+  const loaded = async (win) => {
+    await until('a window to load', () => !win.webContents.isLoading());
+    await sleep(400);
+    return win;
+  };
   const problems = [];
   const expect = (ok, what) => {
     log(`${ok ? 'ok  ' : 'FAIL'} ${what}`);
     if (!ok) problems.push(what);
   };
+  const frames = (win) => js(win, 'window.ardpStats ? window.ardpStats.frames : 0');
   const menuText = (win) => js(win, `[...document.querySelectorAll('#menu li')].map((li) => li.textContent.trim()).filter(Boolean).join(' | ')`);
-  const menuClick = (win, text) =>
-    js(win, `[...document.querySelectorAll('#menu li')].find((li) => li.textContent.trim() === ${JSON.stringify(text)}).click()`);
+  const menuClick = (win, label) =>
+    js(win, `[...document.querySelectorAll('#menu li')].find((li) => li.textContent.trim() === ${JSON.stringify(label)}).click()`);
+  const closeSession = async (session) => {
+    session.win.close();
+    await until('the session to close', () => sessions.size === 0);
+  };
+  const hidden = () => require('electron').BrowserWindow.getAllWindows().every((w) => !w.isVisible());
 
   try {
-    const launcher = getLauncher();
-    await until('the launcher page', () => !launcher.webContents.isLoading());
-    await sleep(400);
-    expect(!launcher.isVisible(), 'the launcher stays hidden');
-    expect(await js(launcher, `document.getElementById('vm-new').disabled === false`), 'virtual machines are available');
+    // the front door
+    const home = await loaded(open('home'));
+    expect((await text(home, 'product-name')) === 'ARP' && (await text(home, 'product-meaning')) === 'Aesthetic Remote Protocol', 'the home window says ARP and what it stands for');
+    expect(await js(home, `!document.getElementById('open-rdp').disabled`), 'remote desktop and virtual machines can be opened');
 
-    const made = await js(launcher, `window.ardp.vm.create({ name: 'Quiet VM', memory: 1024, cpus: 1, diskGb: 4, iso: '' })`);
+    // virtual machines
+    await click(home, 'open-vms');
+    const manager = await loaded(open('vms'));
+    expect(await js(manager, `document.getElementById('vm-new').disabled === false`), 'virtual machines are available');
+    const made = await js(manager, `window.arp.create({ name: 'Quiet VM', memory: 1024, cpus: 1, diskGb: 4, iso: '' })`);
     expect(made.ok && made.vms.vms.length === 1 && made.vms.vms[0].state === 'stopped', `a vm can be created: ${JSON.stringify(made.vms.vms)}`);
-    const bad = await js(launcher, `window.ardp.vm.create({ name: 'Quiet VM' })`);
-    expect(!bad.ok && /already/.test(bad.text), `a second one with the same name is refused: ${bad.text}`);
-    await until('the vm in the list', () => js(launcher, `document.querySelectorAll('#vm-list li[data-id]').length === 1`));
+    const again = await js(manager, `window.arp.create({ name: 'Quiet VM' })`);
+    expect(!again.ok && /already/.test(again.text), `a second one with the same name is refused: ${again.text}`);
+    await until('the vm in the list', () => js(manager, `document.querySelectorAll('#vm-list li[data-id]').length === 1`));
 
-    // open it from the virtual machines tab, as its owner would
-    await click(launcher, 'tab-vms');
-    await click(launcher, 'vm-open');
+    await click(manager, 'vm-open');
     await until('a session window', () => sessions.size === 1);
-    const session = [...sessions][0];
-    await until('the vm picture', async () => (await js(session.win, 'window.ardpStats ? window.ardpStats.frames : 0')) >= 5);
+    let session = [...sessions][0];
+    await until('the vm picture', async () => (await frames(session.win)) >= 5);
     const vm = vms.store.get('quiet-vm');
-    expect(!session.win.isVisible(), 'the session window stays hidden');
     expect(vm.state === 'running', 'opening the vm switched it on');
     expect(session.win.getTitle() === 'Quiet VM - this computer - ARDP', `title: ${session.win.getTitle()}`);
-    expect(session.opened.kind === 'vm' && session.opened.control, `a vm on this computer can be controlled: ${JSON.stringify(session.opened)}`);
-    await until('the vm listed as running', () => js(launcher, `document.querySelector('#vm-list .state').textContent === 'running'`));
+    expect(session.opened.kind === 'vm' && session.opened.control, 'a vm on this computer can be controlled');
+    await until('the vm listed as running', () => js(manager, `document.querySelector('#vm-list .state').textContent === 'running'`));
+    expect((await text(home, 'vms-note')) === '1 of 1 running.', `the home window notices: ${await text(home, 'vms-note')}`);
 
     await click(session.win, 'sysmenu');
     const menu = await menuText(session.win);
@@ -313,31 +333,53 @@ exports.runQuiet = async ({ app, hostService, vms, getLauncher, sessions }) => {
     await menuClick(session.win, 'Shut down');
     const ended = await until('the session to end', () => js(session.win, `document.getElementById('notice').hidden ? '' : document.getElementById('notice-text').textContent`));
     expect(ended === 'The remote session ended.' && vm.state === 'stopped', `shutting down from the menu ends the session and stops the vm: "${ended}", ${vm.state}`);
-    session.win.close();
-    await until('the session to close', () => sessions.size === 0);
+    await closeSession(session);
 
-    // from "another computer": the host now offers its desktop and the vm, so the launcher asks
+    // remote desktop: it knows about a vm running right here
+    await vms.start('quiet-vm');
+    await click(home, 'open-rdp');
+    const rdp = await loaded(open('rdp'));
+    expect((await text(rdp, 'product-name')) === 'ARDP', 'the remote desktop window is ARDP');
+    await until('the running vm to be offered', () => js(rdp, `!document.getElementById('local-vms').hidden`));
+    expect((await js(rdp, `document.querySelector('#local-vm-list span').textContent`)) === 'Quiet VM', 'it offers the vm that is running on this computer');
+    await js(rdp, `document.querySelector('#local-vm-list button').click()`);
+    await until('the local vm session', () => sessions.size === 1);
+    session = [...sessions][0];
+    await until('its picture', async () => (await frames(session.win)) >= 5);
+    expect(session.opened.kind === 'vm' && session.local, 'and opens it from there');
+    await closeSession(session);
+
+    // from another computer: with a vm running the caller is asked which one
     hostService.config.data.host.port = PORT;
     hostService.config.data.host.bind = '127.0.0.1';
     await hostService.setEnabled(true);
-    const port = hostService.host.server.address().port;
-    await click(launcher, 'tab-connect');
-    await js(launcher, `(() => { const set = (id, v) => { const el = document.getElementById(id); el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); }; set('address', '127.0.0.1:${port}'); set('code', ${JSON.stringify(hostService.code)}); })()`);
-    await click(launcher, 'connect');
-    await until('the chooser', () => js(launcher, `!document.getElementById('chooser').hidden`));
-    const offered = await js(launcher, `[...document.querySelectorAll('#chooser-list li')].map((li) => li.textContent).join(' | ')`);
-    expect(/the desktop/.test(offered) && /Quiet VMvirtual machine, off/.test(offered), `the launcher asks what to open: ${offered}`);
-    await js(launcher, `document.querySelector('#chooser-list li[data-id="vm:quiet-vm"]').click()`);
-    await click(launcher, 'chooser-open');
+    const fill = (address) =>
+      js(rdp, `(() => { const set = (id, v) => { const el = document.getElementById(id); el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); }; set('address', ${JSON.stringify(address)}); set('code', ${JSON.stringify(hostService.code)}); })()`);
+    await fill(`127.0.0.1:${PORT}`);
+    await click(rdp, 'connect');
+    await until('the chooser', () => js(rdp, `!document.getElementById('chooser').hidden`));
+    const offered = await js(rdp, `[...document.querySelectorAll('#chooser-list li')].map((li) => li.textContent).join(' | ')`);
+    expect(/the main PC/.test(offered) && /Quiet VMvirtual machine, running/.test(offered), `with a vm running it asks what to open: ${offered}`);
+    await js(rdp, `document.querySelector('#chooser-list li[data-id="vm:quiet-vm"]').click()`);
+    await click(rdp, 'chooser-open');
     await until('the vm session', () => sessions.size === 1);
-    const remote = [...sessions][0];
-    await until('its picture', async () => (await js(remote.win, 'window.ardpStats ? window.ardpStats.frames : 0')) >= 5);
-    expect(remote.opened.kind === 'vm' && remote.target.source === 'vm:quiet-vm', `the chosen vm opens: ${remote.win.getTitle()}`);
-    expect(hostService.host.list().some((s) => s.source === 'vm:quiet-vm'), 'the host lists the session');
-    remote.win.close();
-    await until('the session to close', () => sessions.size === 0);
+    session = [...sessions][0];
+    await until('its picture', async () => (await frames(session.win)) >= 5);
+    expect(session.opened.kind === 'vm' && session.target.source === 'vm:quiet-vm', `the chosen vm opens: ${session.win.getTitle()}`);
+    expect((await text(home, 'status-host')) === '1 computer connected', `the home window shows it: ${await text(home, 'status-host')}`);
+    await closeSession(session);
 
+    // with no vm running there is nothing to ask: straight to the pc
     await vms.stop('quiet-vm', true);
+    await fill(`127.0.0.1:${PORT}`);
+    await click(rdp, 'connect');
+    await until('the desktop session', () => sessions.size === 1);
+    session = [...sessions][0];
+    await until('the desktop to open', () => session.opened);
+    expect(session.opened.kind === 'desktop' && (await js(rdp, `document.getElementById('chooser').hidden`)), 'with no vm running it goes straight to the pc');
+    await closeSession(session);
+
+    expect(hidden(), 'no window was ever shown');
     await vms.remove('quiet-vm');
     expect(vms.state().vms.length === 0, 'the vm can be removed once it is off');
   } catch (err) {

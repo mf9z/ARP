@@ -6,7 +6,7 @@
 
 **Aesthetic Remote Protocol. Your computers, from anywhere, with nothing in the way.**
 
-Remote desktop today. Virtual machines next. Then calling and screen sharing.
+Remote desktop and virtual machines today. Calling and screen sharing next.
 
 [![Last Commit](https://img.shields.io/github/last-commit/mf9z/ARP)](https://github.com/mf9z/ARP/commits/main)
 [![Stars](https://img.shields.io/github/stars/mf9z/ARP?style=flat)](https://github.com/mf9z/ARP/stargazers)
@@ -20,49 +20,75 @@ Remote desktop today. Virtual machines next. Then calling and screen sharing.
 </div>
 
 ```
+ARP
+Aesthetic Remote Protocol
+
+› Remote desktop     use another computer, or let one use this one
+  Virtual machines   run other computers inside this one
+```
+
+One launcher opens everything. A remote session is a title bar and the other
+desktop, and that's the whole window:
+
+```
 ┌──────────────────────────────────────────────────────────────┐
 │ studio-pc - 192.168.1.20 - ARDP                   ─   □   ✕  │
 ├──────────────────────────────────────────────────────────────┤
 │                                                              │
-│                                                              │
 │                 the other computer's desktop                 │
-│                                                              │
 │                                                              │
 └──────────────────────────────────────────────────────────────┘
 ```
-
-A session is a title bar and the other desktop. That's the whole window.
 
 ## What's in here
 
 | folder                                       | what it is | state |
 |----------------------------------------------|------------|-------|
-| [`ardp`](ardp)                               | Aesthetic Remote Desktop Protocol. The app: connect to a computer, or let one connect to you | works |
+| [`arp-launcher`](arp-launcher)               | the app. One window that launches the rest | works |
+| [`ardp`](ardp)                               | Aesthetic Remote Desktop Protocol: the protocol, the host, the session window | works |
 | [`arp-vm`](arp-vm)                           | virtual machines on QEMU that you open like any other computer | built, not yet run on real QEMU |
 
 ## Install
 
 ```sh
-git clone https://github.com/mf9z/ARP && cd ARP/ardp
+git clone https://github.com/mf9z/ARP && cd ARP
 npm install
 npm start
 ```
 
-Needs Node 22.12+. `npm run dist` builds an installer.
+Needs Node 22.12+. `npm run dist` builds an installer into `arp-launcher/dist`.
+If Electron's download gets skipped by npm, run
+`node node_modules/electron/install.js` once.
 
 ## Use
 
-Both computers run the same app.
+Every computer runs the same app.
 
-1. On the computer you want to reach, open **This computer** and tick
-   **Allow remote connections**. It shows an address and an access code.
-2. On the one you're sitting at, type both and press **Connect**.
+1. On the computer you want to reach, open **Remote desktop**, go to
+   **This computer** and tick **Allow remote connections**. It shows an
+   address and an access code.
+2. On the one you're sitting at, open **Remote desktop**, type both and press
+   **Connect**.
+3. Back on the first computer a question pops up: allow or deny. Untick
+   **Ask me before someone connects** to skip it when nobody is there.
 
-Everything else is in [ardp](ardp).
+If the other computer has a virtual machine running you're asked which to
+open, the main PC or the VM. A VM running on your own computer shows up in
+**Remote desktop** with an **Open** button, no address needed.
+
+More in [ardp](ardp) and [arp-vm](arp-vm).
+
+## Development
+
+```sh
+npm test               # protocol and vm tests
+npm run selftest:vm    # the whole app with a stand-in for QEMU, no windows shown
+```
 
 ## Roadmap
 
 - [x] remote desktop
-- [ ] virtual machines
+- [x] one launcher for everything
+- [ ] virtual machines (built, needs a run on real QEMU)
 - [ ] calling
 - [ ] screen sharing

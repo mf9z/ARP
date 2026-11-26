@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' ardp-ui:; style-src 'self' ardp-ui:; img-src 'self' data: ardp-ui:" />
+    <title>Virtual machines</title>
+    <link rel="stylesheet" href="ardp-ui://kit/chrome.css" />
+    <link rel="stylesheet" href="ardp-ui://kit/launcher.css" />
+    <link rel="stylesheet" href="vms.css" />
+  </head>
+  <body class="dialog inactive">
+    <svg width="0" height="0" class="defs" aria-hidden="true">
+      <symbol id="ico-vm" viewBox="0 0 32 32" shape-rendering="crispEdges">
+        <path fill="#282121" d="M2 3h28v26H2z" />
+        <path fill="#ffffff" d="M4 9h24v18H4z" />
+        <path fill="#03aeee" d="M4 5h24v3H4z" />
+        <path fill="#ffffff" d="M24 6h2v1h-2z" />
+        <path fill="#282121" d="M8 12h16v10H8zM14 22h4v2h-4zM11 24h10v1H11z" />
+        <path fill="#9bdcf7" d="M10 14h12v6H10z" />
+      </symbol>
+      <symbol id="ico-warning" viewBox="0 0 16 16">
+        <path fill="#f5c400" stroke="#282121" stroke-width="1" stroke-linejoin="round" d="M8 1.5 15 14H1z" />
+        <path fill="#282121" d="M7.25 6h1.5v4h-1.5zM7.25 11h1.5v1.5h-1.5z" />
+      </symbol>
+    </svg>
+
+    <header class="titlebar">
+      <span class="tb-icon"><img src="ardp-ui://kit/logo.svg" alt="" /></span>
+      <div class="tb-title">Virtual machines - ARP</div>
+      <div class="tb-controls">
+        <button class="tb-btn" id="min" aria-label="Minimize" tabindex="-1">
+          <svg viewBox="0 0 10 10" shape-rendering="crispEdges"><path d="M0 5.5h10" /></svg>
+        </button>
+        <button class="tb-btn tb-close" id="close" aria-label="Close" tabindex="-1">
+          <svg viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10" /></svg>
+        </button>
+      </div>
+    </header>
+
+    <main class="sheet">
+      <div class="lede">
+        <svg width="32" height="32"><use href="#ico-vm" /></svg>
+        <p>Run virtual machines on this computer.<br /><span class="dim" id="vm-hint"></span></p>
+      </div>
+
+      <ul class="listbox" id="vm-list" role="listbox" tabindex="0"></ul>
+
+      <div class="actions">
+        <button class="btn" id="vm-new" type="button">New...</button>
+        <span class="spacer"></span>
+        <button class="btn default" id="vm-open" type="button">Open</button>
+        <button class="btn" id="vm-power" type="button">Start</button>
+        <button class="btn" id="vm-remove" type="button">Remove</button>
+      </div>
+
+      <form id="vm-form" autocomplete="off" hidden>
+        <fieldset class="group">
+          <legend>New virtual machine</legend>
+          <div class="form">
+            <label for="vm-name">Name:</label>
+            <input class="field" id="vm-name" type="text" maxlength="32" placeholder="Windows 11" spellcheck="false" />
+
+            <label for="vm-memory">Memory:</label>
+            <span class="units"><input class="field" id="vm-memory" type="text" inputmode="numeric" maxlength="6" value="4096" /> MB, with <input class="field" id="vm-cpus" type="text" inputmode="numeric" maxlength="2" value="2" /> processors</span>
+
+            <label for="vm-disk">Disk:</label>
+            <span class="units"><input class="field" id="vm-disk" type="text" inputmode="numeric" maxlength="4" value="64" /> GB</span>
+
+            <label for="vm-iso">Installer:</label>
+            <span class="pick"><input class="field" id="vm-iso" type="text" placeholder="an .iso to install from (optional)" spellcheck="false" /><button class="btn small" id="vm-browse" type="button">Browse...</button></span>
+          </div>
+          <div class="actions">
+            <span class="spacer"></span>
+            <button class="btn default" id="vm-create" type="submit">Create</button>
+            <button class="btn" id="vm-cancel" type="button">Cancel</button>
+          </div>
+        </fieldset>
+      </form>
+
+      <div class="message" id="vm-message" role="alert" hidden>
+        <svg width="16" height="16"><use href="#ico-warning" /></svg>
+        <span id="vm-message-text"></span>
+      </div>
+    </main>
+
+    <footer class="statusbar">
+      <div class="pane grow" id="status">Ready</div>
+    </footer>
+
+    <script src="ardp-ui://kit/listbox.js"></script>
+    <script src="vms.js"></script>
+  </body>
+</html>

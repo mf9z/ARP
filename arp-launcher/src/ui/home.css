@@ -1,0 +1,60 @@
+.tiles {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 10px 2px;
+}
+
+.tile {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 11px 14px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: linear-gradient(#fdfdfd, #e9e9e9);
+}
+.tile:hover {
+  border-color: var(--blue);
+  background: linear-gradient(#f4fbff, #d8f0fb);
+}
+.tile:active {
+  border-color: var(--blue-deep);
+  background: #c5e7f7;
+}
+.tile:focus-visible {
+  outline: 1px dotted var(--ink);
+  outline-offset: -4px;
+}
+.tile svg {
+  flex: none;
+}
+.tile-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.tile-text b {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.tile-text span {
+  color: var(--text-dim);
+}
+.tile:disabled {
+  border-color: #cfcfcf;
+  background: #f1f1f1;
+}
+.tile:disabled svg {
+  opacity: 0.45;
+}
+.tile:disabled b {
+  color: #9a9a9a;
+}
+.tile:disabled span {
+  color: #a8a4a4;
+}

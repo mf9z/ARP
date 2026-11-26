@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' ardp-ui:; img-src 'self' data: ardp-ui:" />
+    <title>ARP</title>
+    <link rel="stylesheet" href="ardp-ui://kit/chrome.css" />
+    <link rel="stylesheet" href="ardp-ui://kit/launcher.css" />
+    <link rel="stylesheet" href="home.css" />
+  </head>
+  <body class="dialog inactive">
+    <svg width="0" height="0" class="defs" aria-hidden="true">
+      <symbol id="ico-connect" viewBox="0 0 32 32" shape-rendering="crispEdges">
+        <path fill="#282121" d="M2 3h17v13H2zM8 16h5v2H8zM5 18h11v2H5z" />
+        <path fill="#9bdcf7" d="M4 5h13v9H4z" />
+        <path fill="#ffffff" d="M12 11h19v15H12z" />
+        <path fill="#282121" d="M13 12h17v13H13zM19 25h5v2h-5zM16 27h11v2H16z" />
+        <path fill="#03aeee" d="M15 14h13v9H15z" />
+        <path fill="#ffffff" d="M16 15h5v1h-5zM16 17h3v1h-3z" />
+      </symbol>
+      <symbol id="ico-vm" viewBox="0 0 32 32" shape-rendering="crispEdges">
+        <path fill="#282121" d="M2 3h28v26H2z" />
+        <path fill="#ffffff" d="M4 9h24v18H4z" />
+        <path fill="#03aeee" d="M4 5h24v3H4z" />
+        <path fill="#ffffff" d="M24 6h2v1h-2z" />
+        <path fill="#282121" d="M8 12h16v10H8zM14 22h4v2h-4zM11 24h10v1H11z" />
+        <path fill="#9bdcf7" d="M10 14h12v6H10z" />
+      </symbol>
+    </svg>
+
+    <header class="titlebar">
+      <span class="tb-icon"><img src="ardp-ui://kit/logo.svg" alt="" /></span>
+      <div class="tb-title" id="window-title">ARP</div>
+      <div class="tb-controls">
+        <button class="tb-btn" id="min" aria-label="Minimize" tabindex="-1">
+          <svg viewBox="0 0 10 10" shape-rendering="crispEdges"><path d="M0 5.5h10" /></svg>
+        </button>
+        <button class="tb-btn tb-close" id="close" aria-label="Close" tabindex="-1">
+          <svg viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10" /></svg>
+        </button>
+      </div>
+    </header>
+
+    <section class="banner">
+      <img src="ardp-ui://kit/logo.svg" alt="" width="58" height="58" />
+      <div class="banner-text">
+        <h1 id="product-name">ARP</h1>
+        <p id="product-meaning">Aesthetic Remote Protocol</p>
+      </div>
+    </section>
+
+    <nav class="tiles">
+      <button class="tile" id="open-rdp" type="button">
+        <svg width="32" height="32"><use href="#ico-connect" /></svg>
+        <span class="tile-text"><b>Remote desktop</b><span id="rdp-note">Use another computer, or let one use this one.</span></span>
+      </button>
+      <button class="tile" id="open-vms" type="button">
+        <svg width="32" height="32"><use href="#ico-vm" /></svg>
+        <span class="tile-text"><b>Virtual machines</b><span id="vms-note">Run other computers inside this one.</span></span>
+      </button>
+    </nav>
+
+    <footer class="statusbar">
+      <div class="pane grow" id="status"></div>
+      <div class="pane">
+        <span class="led" id="status-led"></span>
+        <span id="status-host"></span>
+      </div>
+    </footer>
+
+    <script src="home.js"></script>
+  </body>
+</html>

@@ -1,0 +1,23 @@
+.sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 10px 10px 0;
+  padding: 14px 14px 12px;
+  border: 1px solid var(--line-soft);
+  background: #ffffff;
+}
+
+.sheet .listbox {
+  height: 109px;
+}
+
+.sheet .actions {
+  margin-top: 0;
+  padding-top: 0;
+  align-self: stretch;
+}
+
+#vm-form .form {
+  margin-bottom: 10px;
+}

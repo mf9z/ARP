@@ -35,20 +35,13 @@ the screen, keyboard and mouse.
 
 ## Install
 
+ardp is a library plus its windows. The app that runs it is
+[arp-launcher](../arp-launcher); from the repo root:
+
 ```sh
-git clone https://github.com/mf9z/ARP && cd ARP/ardp
 npm install
 npm start
 ```
-
-Or build an installer and run that on each computer:
-
-```sh
-npm run dist      # dist/ARDP Setup 0.1.0.exe, or a .dmg when built on a Mac
-```
-
-Needs Node 22.12+. Builds aren't code-signed yet, so Windows SmartScreen warns
-on first launch.
 
 ## Use
 
@@ -70,12 +63,19 @@ studio-pc               a name works too
 | `Ctrl+Alt+Enter`    | full screen. The title bar hides; rest the pointer on the top edge to get it back |
 | copy / paste        | text copied on one side can be pasted on the other |
 
+### Asking first
+
+With **Ask me before someone connects** ticked (it is by default), the computer
+being connected to shows who is asking and waits for **Allow** or **Deny**. No
+answer in 30 seconds counts as no. Untick it to reach a computer nobody is
+sitting at.
+
 ### Virtual machines
 
-The **Virtual machines** tab makes and runs QEMU guests with [arp-vm](../arp-vm).
-**Open** shows one right here. From another computer, connect to this one as
-usual and pick the VM instead of the desktop, or type `192.168.1.20/vm:name`.
-Opening a VM that is off switches it on, and its window menu gets
+If the other computer has a virtual machine running you're asked which to
+open, the main PC or the VM. You can also type `192.168.1.20/vm:name`, which
+switches the VM on if it is off. A VM running on this computer is listed under
+**Running on this computer** with an **Open** button. A VM's window menu gets
 **Send Ctrl+Alt+Del**, **Restart** and **Shut down**.
 
 While a computer accepts connections the app stays in the tray. Windows asks
@@ -104,6 +104,7 @@ passes so text ends up sharp. The wire format is in
   certificate the client saw, so it can't be relayed by someone in the middle.
 - A host's identity is remembered. If it changes you're asked before going on.
 - Five wrong codes lock that address out, for longer each time.
+- Someone at the host gets to allow or deny each connection, unless that is switched off.
 - Hosting is off until you turn it on. **New** replaces the code and
   disconnects everyone using the old one.
 - Saved codes are encrypted with the OS credential store.
@@ -123,10 +124,9 @@ passes so text ends up sharp. The wire format is in
 ## Development
 
 ```sh
-npm test            # protocol tests
-npm run selftest    # the real app connects to itself and saves screenshots
-npm run selftest:vm # the vm path with a stand-in for QEMU, no windows shown
-npm run icons       # rebuild the icons from assets/ardp.svg
+npm test -w ardp                                # protocol tests
+npx electron ardp/scripts/capture-check.js      # which video encoder this machine picks
+npx electron ardp/scripts/make-icons.js         # rebuild the icons from assets/ardp.svg
 ```
 
 | path            | what's in it |
@@ -134,7 +134,7 @@ npm run icons       # rebuild the icons from assets/ardp.svg
 | `src/protocol`  | framing, messages, access code proof |
 | `src/host`      | the host, flow control, the `Source` interface |
 | `src/client`    | the client |
-| `src/app`       | the Electron app: launcher, session window, capture, input |
+| `src/app`       | the Electron side: the remote desktop window, the session window, capture, input |
 | `docs`          | the wire protocol |
 
 ## Sources

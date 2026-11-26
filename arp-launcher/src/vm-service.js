@@ -3,7 +3,7 @@
 const path = require('path');
 const { EventEmitter } = require('events');
 const { VmStore } = require('arp-vm');
-const { FrameSource } = require('./host/frame-source');
+const { FrameSource } = require('ardp/src/app/host/frame-source');
 
 const CTRL_ALT_DEL = ['ControlLeft', 'AltLeft', 'Delete'];
 

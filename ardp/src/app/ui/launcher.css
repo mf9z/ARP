@@ -476,3 +476,25 @@ body.dialog {
   flex: 1;
   min-width: 0;
 }
+
+.form > .local {
+  grid-column: 1 / -1;
+}
+.local ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.local li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+}
+.local li span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

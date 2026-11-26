@@ -1,0 +1,23 @@
+{
+  "name": "arp",
+  "version": "0.1.0",
+  "description": "ARP - Aesthetic Remote Protocol.",
+  "author": "rohann",
+  "repository": "github:mf9z/ARP",
+  "license": "UNLICENSED",
+  "private": true,
+  "workspaces": [
+    "ardp",
+    "arp-vm",
+    "arp-launcher"
+  ],
+  "scripts": {
+    "start": "npm start -w arp-launcher",
+    "test": "npm test -w ardp -w arp-vm",
+    "selftest:vm": "npm run selftest:vm -w arp-launcher",
+    "dist": "npm run dist -w arp-launcher"
+  },
+  "allowScripts": {
+    "electron@45.5.0": true
+  }
+}

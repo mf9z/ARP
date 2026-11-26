@@ -16,14 +16,7 @@ contextBridge.exposeInMainWorld('ardp', {
   newCode: () => ipcRenderer.invoke('host:new-code'),
   disconnect: (id) => ipcRenderer.send('host:disconnect', id),
 
-  vm: {
-    create: (spec) => ipcRenderer.invoke('vm:create', spec),
-    start: (id) => ipcRenderer.invoke('vm:start', id),
-    stop: (id, force) => ipcRenderer.invoke('vm:stop', id, force),
-    remove: (id) => ipcRenderer.invoke('vm:remove', id),
-    open: (id) => ipcRenderer.invoke('vm:open', id),
-    browse: () => ipcRenderer.invoke('vm:browse'),
-  },
+  openVm: (id) => ipcRenderer.invoke('vm:open', id),
 
   copy: (text) => ipcRenderer.send('app:copy', text),
   startAtLogin: (enabled) => ipcRenderer.invoke('app:start-at-login', enabled),
@@ -31,6 +24,6 @@ contextBridge.exposeInMainWorld('ardp', {
 
   onState: on('launcher:state'),
   onHost: on('host:state'),
-  onVms: on('vm:state'),
+  onLocalVms: on('local-vms'),
   onWindow: on('window:state'),
 });

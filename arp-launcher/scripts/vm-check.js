@@ -9,11 +9,11 @@ const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const { app } = require('electron');
-const auth = require('../src/protocol/auth');
-const { ArdpHost } = require('../src/host/host');
-const { ArdpClient } = require('../src/client/client');
-const { loadIdentity } = require('../src/host/identity');
-const { VmService } = require('../src/app/vm-service');
+const auth = require('ardp/src/protocol/auth');
+const { ArdpHost } = require('ardp/src/host/host');
+const { ArdpClient } = require('ardp/src/client/client');
+const { loadIdentity } = require('ardp/src/host/identity');
+const { VmService } = require('../src/vm-service');
 
 const CODE = 'TEST-CODE-1234';
 const INFO = { name: 'check', platform: process.platform, version: '0' };

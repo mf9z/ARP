@@ -6,7 +6,8 @@ A VM shows up on a host as one more thing you can connect to, next to its
 desktop. Same protocol, same session window.
 
 This is the part that runs the VMs. It has no UI of its own: [ardp](../ardp)
-shows them in its **Virtual machines** tab and carries their screen.
+carries their screen, and [arp-launcher](../arp-launcher) has the window that
+manages them.
 
 ## Needs
 
@@ -49,12 +50,12 @@ await vm.stop();
 ## Development
 
 ```sh
-npm test
+npm test -w arp-vm
 ```
 
 The tests don't need QEMU. `dev/fake-qemu.js` stands in for it: it takes the
 same arguments, serves a test picture as the VM's screen and answers the
-control socket. `ARP_FAKE_QEMU=1` makes the ardp app use it too.
+control socket. `ARP_FAKE_QEMU=1` makes the app use it too.
 
 ## Limits
 

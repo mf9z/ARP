@@ -1,0 +1,66 @@
+{
+  "name": "arp-launcher",
+  "productName": "ARP",
+  "version": "0.1.0",
+  "description": "ARP - Aesthetic Remote Protocol. The app: remote desktop and virtual machines.",
+  "author": "rohann",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mf9z/ARP.git",
+    "directory": "arp-launcher"
+  },
+  "main": "src/main.js",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "selftest": "electron . --selftest",
+    "selftest:vm": "electron . --selftest-vm",
+    "dist": "electron-builder",
+    "dist:dir": "electron-builder --dir"
+  },
+  "dependencies": {
+    "ardp": "file:../ardp",
+    "arp-vm": "file:../arp-vm"
+  },
+  "devDependencies": {
+    "electron": "45.5.0",
+    "electron-builder": "^26.18.0"
+  },
+  "build": {
+    "appId": "app.arp.desktop",
+    "productName": "ARP",
+    "files": [
+      "src/**/*",
+      "package.json",
+      "!node_modules/ardp/{dist,docs,scripts,test}/**",
+      "!node_modules/arp-vm/test/**"
+    ],
+    "asarUnpack": [
+      "node_modules/@nut-tree-fork/**/*"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "icon": "../ardp/assets/icons/icon-256.png",
+      "target": [
+        "nsis"
+      ]
+    },
+    "mac": {
+      "icon": "../ardp/assets/icons/icon-512.png",
+      "category": "public.app-category.utilities",
+      "target": [
+        "dmg"
+      ],
+      "extendInfo": {
+        "NSScreenCaptureUsageDescription": "ARP shares this screen with the computers you allow to connect."
+      }
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}
