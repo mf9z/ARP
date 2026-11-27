@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ARP - Aesthetic Remote Protocol</title>
+<meta name="description" content="ARP: remote desktop and virtual machines in one app, for Windows and macOS.">
+<meta property="og:title" content="ARP - Aesthetic Remote Protocol">
+<meta property="og:description" content="Your computers, from anywhere, with nothing in the way. Remote desktop and virtual machines.">
+<meta property="og:image" content="https://mf9z.github.io/ARP/icon-128.png">
+<link rel="icon" type="image/png" href="favicon.png">
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff;
+    --canvas: #f6f8fa;
+    --fg: #1f2328;
+    --muted: #59636e;
+    --border: #d1d9e0;
+    --border-soft: #d1d9e0b3;
+    --link: #0969da;
+    --code-bg: #f6f8fa;
+    --inline-code: #818b981f;
+    --btn: #1f883d;
+    --btn-hover: #1c8139;
+    --btn-fg: #ffffff;
+    --btn2: #f6f8fa;
+    --btn2-hover: #eff2f5;
+    --row-alt: #f6f8fa;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117;
+      --canvas: #010409;
+      --fg: #f0f6fc;
+      --muted: #9198a1;
+      --border: #3d444d;
+      --border-soft: #3d444db3;
+      --link: #4493f8;
+      --code-bg: #151b23;
+      --inline-code: #656c7633;
+      --btn: #238636;
+      --btn-hover: #29903b;
+      --btn-fg: #ffffff;
+      --btn2: #212830;
+      --btn2-hover: #262c36;
+      --row-alt: #151b23;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--canvas);
+    color: var(--fg);
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  }
+  a { color: var(--link); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .page { max-width: 1012px; margin: 0 auto; padding: 24px 16px 48px; }
+
+  .crumbs { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; font-size: 20px; }
+  .crumbs svg { fill: var(--muted); flex: none; }
+  .crumbs .sep { color: var(--muted); }
+  .crumbs strong { font-weight: 600; }
+  .crumbs .tag { font-size: 12px; font-weight: 500; color: var(--muted); border: 1px solid var(--border); border-radius: 2em; padding: 0 7px; line-height: 18px; }
+  .crumbs .spacer { flex: 1; }
+  .crumbs .repo { font-size: 14px; font-weight: 500; color: var(--fg); background: var(--btn2); border: 1px solid var(--border); border-radius: 6px; padding: 3px 12px; display: inline-flex; align-items: center; gap: 8px; }
+  .crumbs .repo:hover { background: var(--btn2-hover); text-decoration: none; }
+
+  .box { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
+  .box-head { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 14px; font-weight: 600; position: sticky; top: 0; background: var(--bg); border-radius: 6px 6px 0 0; }
+  .box-head svg { fill: var(--muted); }
+  .box-head span { border-bottom: 2px solid #fd8c73; margin-bottom: -13px; padding-bottom: 11px; }
+
+  .md { padding: 32px; overflow-wrap: break-word; }
+  .md > *:first-child { margin-top: 0; }
+  .md > *:last-child { margin-bottom: 0; }
+  .md h1, .md h2 { font-weight: 600; line-height: 1.25; margin: 24px 0 16px; padding-bottom: .3em; border-bottom: 1px solid var(--border-soft); }
+  .md h1 { font-size: 2em; }
+  .md h2 { font-size: 1.5em; scroll-margin-top: 56px; }
+  .md h3 { font-size: 1.25em; font-weight: 600; line-height: 1.25; margin: 24px 0 16px; }
+  .md p, .md ul, .md ol, .md table, .md pre { margin: 0 0 16px; }
+  .md ul, .md ol { padding-left: 2em; }
+  .md li + li { margin-top: .25em; }
+  .md code { font: 85%/1.45 ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; background: var(--inline-code); border-radius: 6px; padding: .2em .4em; white-space: break-spaces; }
+  .md pre { background: var(--code-bg); border-radius: 6px; padding: 16px; overflow-x: auto; font: 85%/1.45 ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; }
+  .md pre code { background: none; padding: 0; font-size: 100%; white-space: pre; }
+  .md .scroll { overflow-x: auto; margin: 0 0 16px; }
+  .md .scroll table { margin: 0; }
+  .md table { border-collapse: collapse; width: max-content; max-width: 100%; }
+  .md th, .md td { border: 1px solid var(--border); padding: 6px 13px; text-align: left; vertical-align: top; }
+  .md th { font-weight: 600; }
+  .md tr:nth-child(2n) td { background: var(--row-alt); }
+  .md .muted { color: var(--muted); font-size: 14px; }
+
+  .center { text-align: center; }
+  .center h1 { border-bottom: 0; padding-bottom: 0; margin-bottom: 16px; }
+  .center img.icon { width: 96px; height: 96px; }
+  .badges { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; margin: 0 0 16px; }
+  .badges img { height: 20px; display: block; }
+
+  .downloads { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 0 0 12px; }
+  .dl { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border: 1px solid var(--border); border-radius: 6px; background: var(--btn2); color: var(--fg); min-width: 0; }
+  .dl:hover { background: var(--btn2-hover); text-decoration: none; }
+  .dl.primary { background: var(--btn); border-color: transparent; color: var(--btn-fg); }
+  .dl.primary:hover { background: var(--btn-hover); }
+  .dl svg { width: 24px; height: 24px; fill: currentColor; flex: none; }
+  .dl b { display: block; font-weight: 600; font-size: 15px; }
+  .dl small { display: block; font-size: 12px; opacity: .8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dl div { min-width: 0; }
+  @media (max-width: 720px) {
+    .downloads { grid-template-columns: 1fr; }
+    .md { padding: 24px 16px; }
+    .crumbs { font-size: 18px; }
+  }
+  footer { margin-top: 16px; text-align: center; font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <nav class="crumbs" aria-label="Repository">
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 2.5A2.5 2.5 0 0 1 4.5 0h8.75a.75.75 0 0 1 .75.75v12.5a.75.75 0 0 1-.75.75h-2.5a.75.75 0 0 1 0-1.5h1.75v-2h-8a1 1 0 0 0-.714 1.7.75.75 0 1 1-1.072 1.05A2.495 2.495 0 0 1 2 11.5Zm10.5-1h-8a1 1 0 0 0-1 1v6.708A2.486 2.486 0 0 1 4.5 9h8ZM5 12.25a.25.25 0 0 1 .25-.25h3.5a.25.25 0 0 1 .25.25v3.25a.25.25 0 0 1-.4.2l-1.45-1.087a.249.249 0 0 0-.3 0L5.4 15.7a.25.25 0 0 1-.4-.2Z"/></svg>
+    <a href="https://github.com/mf9z">mf9z</a>
+    <span class="sep">/</span>
+    <a href="https://github.com/mf9z/ARP"><strong>ARP</strong></a>
+    <span class="tag">Public</span>
+    <span class="spacer"></span>
+    <a class="repo" href="https://github.com/mf9z/ARP">
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" style="fill:currentColor"><path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg>
+      View on GitHub
+    </a>
+  </nav>
+
+  <main class="box">
+    <div class="box-head">
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"/></svg>
+      <span>README</span>
+    </div>
+
+    <article class="md">
+      <div class="center">
+        <p><img class="icon" src="icon-128.png" width="96" height="96" alt=""></p>
+        <h1>arp</h1>
+        <p><strong>Aesthetic Remote Protocol. Your computers, from anywhere, with nothing in the way.</strong></p>
+        <p>Remote desktop and virtual machines.</p>
+        <p class="badges">
+          <a href="https://github.com/mf9z/ARP/releases/latest"><img src="https://img.shields.io/github/v/release/mf9z/ARP?label=release" alt="Latest release"></a>
+          <a href="https://github.com/mf9z/ARP/commits/main"><img src="https://img.shields.io/github/last-commit/mf9z/ARP" alt="Last commit"></a>
+          <a href="https://github.com/mf9z/ARP/stargazers"><img src="https://img.shields.io/github/stars/mf9z/ARP?style=flat" alt="Stars"></a>
+          <a href="https://github.com/mf9z/ARP/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license"></a>
+        </p>
+        <p class="badges">
+          <img src="https://img.shields.io/badge/Windows-0078D6?logo=windows&amp;logoColor=white" alt="Windows">
+          <img src="https://img.shields.io/badge/macOS-000000?logo=apple&amp;logoColor=white" alt="macOS">
+          <img src="https://img.shields.io/badge/Electron-47848F?logo=electron&amp;logoColor=white" alt="Electron">
+          <img src="https://img.shields.io/badge/Node.js-339933?logo=nodedotjs&amp;logoColor=white" alt="Node.js">
+          <img src="https://img.shields.io/badge/QEMU-FF6600?logo=qemu&amp;logoColor=white" alt="QEMU">
+        </p>
+      </div>
+
+<pre><code>ARP
+Aesthetic Remote Protocol
+
+› Remote desktop     use another computer, or let one use this one
+  Virtual machines   run other computers inside this one</code></pre>
+
+      <p>One launcher opens everything. A remote session is a title bar and the other desktop, and that's the whole window:</p>
+
+<pre><code>┌──────────────────────────────────────────────────────────────┐
+│ studio-pc - 192.168.1.20 - ARDP                   ─   □   ✕  │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│                 the other computer's desktop                 │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘</code></pre>
+
+      <h2 id="download">Download</h2>
+
+      <div class="downloads">
+        <a class="dl" id="dl-win" data-os="win" href="https://github.com/mf9z/ARP/releases/latest">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M0 3.449 9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/></svg>
+          <div><b>Windows</b><small>Setup program (.exe)</small></div>
+        </a>
+        <a class="dl" id="dl-mac-arm" data-os="mac" href="https://github.com/mf9z/ARP/releases/latest">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/></svg>
+          <div><b>Mac, Apple silicon</b><small>Disk image (.dmg)</small></div>
+        </a>
+        <a class="dl" id="dl-mac-intel" data-os="mac" href="https://github.com/mf9z/ARP/releases/latest">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/></svg>
+          <div><b>Mac, Intel</b><small>Disk image (.dmg)</small></div>
+        </a>
+      </div>
+      <p class="muted" id="dl-note">The buttons open the <a href="https://github.com/mf9z/ARP/releases/latest">latest release</a>. Not sure which Mac you have? Apple menu &gt; About This Mac: a chip named M1 or later is Apple silicon.</p>
+
+      <p>The installers are not signed with a paid certificate, so the first launch has to be allowed by hand:</p>
+      <ul>
+        <li><strong>Windows:</strong> SmartScreen shows a warning. Choose <strong>More info</strong>, then <strong>Run anyway</strong>.</li>
+        <li><strong>macOS:</strong> right-click the app and choose <strong>Open</strong>, or allow it in <strong>System Settings &gt; Privacy &amp; Security &gt; Open Anyway</strong>.</li>
+      </ul>
+      <p>Virtual machines need <a href="https://www.qemu.org/download/">QEMU</a>: <code>winget install SoftwareFreedomConservancy.QEMU</code> on Windows, <code>brew install qemu</code> on a Mac. Without it the app still opens and remote desktop works.</p>
+
+      <h2 id="use">Use</h2>
+      <p>Every computer runs the same app.</p>
+      <ol>
+        <li>On the computer you want to reach, open <strong>Remote desktop</strong>, go to <strong>This computer</strong> and tick <strong>Allow remote connections</strong>. It shows an address and an access code.</li>
+        <li>On the one you're sitting at, open <strong>Remote desktop</strong>, type both and press <strong>Connect</strong>.</li>
+        <li>Back on the first computer a question pops up: allow or deny.</li>
+      </ol>
+      <p>A Mac that is going to be used from another computer needs two permissions, <strong>Screen Recording</strong> and <strong>Accessibility</strong>. Both have a button on <strong>Remote desktop &gt; This computer</strong>.</p>
+
+      <h2 id="inside">What's in here</h2>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>folder</th><th>what it is</th></tr></thead>
+          <tbody>
+            <tr><td><a href="https://github.com/mf9z/ARP/tree/main/arp-launcher"><code>arp-launcher</code></a></td><td>the app. One window that launches the rest</td></tr>
+            <tr><td><a href="https://github.com/mf9z/ARP/tree/main/ardp"><code>ardp</code></a></td><td>Aesthetic Remote Desktop Protocol: the protocol, the host, the session window</td></tr>
+            <tr><td><a href="https://github.com/mf9z/ARP/tree/main/arp-vm"><code>arp-vm</code></a></td><td>virtual machines on QEMU that you open like any other computer</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2 id="protocol">The protocol</h2>
+      <p>Remote desktop runs on ARDP, a protocol written for this project and specified in full in <a href="https://github.com/mf9z/ARP/blob/main/ardp/docs/PROTOCOL.md">PROTOCOL.md</a>.</p>
+      <div class="scroll">
+        <table>
+          <tbody>
+            <tr><td>transport</td><td>one TCP connection, port 7389, always inside TLS 1.2 or newer</td></tr>
+            <tr><td>handshake</td><td>both sides prove the access code with scrypt and HMAC-SHA256, bound to the certificate and to the TLS session</td></tr>
+            <tr><td>picture</td><td>H.264 (VP8 or VP9 as fallbacks), sent only when the screen changes</td></tr>
+            <tr><td>input</td><td>physical keys and 0 to 1 pointer coordinates</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Everything is encrypted, on a LAN as well as across the internet. The access code is never sent, and by default someone at the computer has to allow each connection. There is no relay: reaching a computer from outside your network means forwarding a port or using a VPN. Nobody outside the project has audited it. The full list is in the <a href="https://github.com/mf9z/ARP/blob/main/ardp/docs/PROTOCOL.md#security-model">security model</a>.</p>
+
+      <h2 id="source">Source</h2>
+      <p>The code, the issues and every release are on GitHub: <a href="https://github.com/mf9z/ARP">github.com/mf9z/ARP</a>.</p>
+<pre><code>git clone https://github.com/mf9z/ARP &amp;&amp; cd ARP
+npm install
+npm start</code></pre>
+
+      <h2 id="license">License</h2>
+      <p><a href="https://github.com/mf9z/ARP/blob/main/LICENSE">MIT</a></p>
+    </article>
+  </main>
+
+  <footer>ARP is not affiliated with GitHub. This page is styled after a repository's README.</footer>
+</div>
+
+<script>
+(function () {
+  var ua = navigator.userAgent;
+  var os = /Windows/i.test(ua) ? 'win' : /Macintosh|Mac OS X/i.test(ua) && !/iPhone|iPad/i.test(ua) ? 'mac' : '';
+  var buttons = { win: document.getElementById('dl-win'), arm: document.getElementById('dl-mac-arm'), intel: document.getElementById('dl-mac-intel') };
+  if (os === 'win') buttons.win.classList.add('primary');
+  if (os === 'mac') buttons.arm.classList.add('primary');
+
+  var size = function (bytes) { return Math.round(bytes / 1048576) + ' MB'; };
+  fetch('https://api.github.com/repos/mf9z/ARP/releases/latest', { headers: { Accept: 'application/vnd.github+json' } })
+    .then(function (res) { return res.ok ? res.json() : Promise.reject(new Error(String(res.status))); })
+    .then(function (release) {
+      var found = 0;
+      (release.assets || []).forEach(function (asset) {
+        var name = String(asset.name || '');
+        var url = String(asset.browser_download_url || '');
+        if (url.indexOf('https://github.com/mf9z/ARP/releases/download/') !== 0) return;
+        var button = /\.exe$/i.test(name) ? buttons.win : /arm64\.dmg$/i.test(name) ? buttons.arm : /\.dmg$/i.test(name) ? buttons.intel : null;
+        if (!button) return;
+        button.href = url;
+        button.querySelector('small').textContent = name + ' · ' + size(asset.size);
+        found += 1;
+      });
+      var version = String(release.tag_name || '').replace(/^v/, '');
+      if (found && /^[0-9][0-9A-Za-z.-]*$/.test(version)) {
+        var note = document.getElementById('dl-note');
+        note.textContent = '';
+        note.append('Version ' + version + '. Each button downloads the installer directly; every version is on the ');
+        var link = document.createElement('a');
+        link.href = 'https://github.com/mf9z/ARP/releases';
+        link.textContent = 'releases page';
+        note.append(link, '. Not sure which Mac you have? Apple menu > About This Mac: a chip named M1 or later is Apple silicon.');
+      }
+    })
+    .catch(function () {});
+})();
+</script>
+</body>
+</html>
