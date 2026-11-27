@@ -4,7 +4,7 @@
   "description": "ARP - Aesthetic Remote Protocol.",
   "author": "rohann",
   "repository": "github:mf9z/ARP",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "private": true,
   "workspaces": [
     "ardp",

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Virtual machines for ARP, on QEMU.",
   "author": "rohann",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "private": true,
   "main": "src/index.js",
   "scripts": {

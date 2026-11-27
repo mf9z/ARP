@@ -9,7 +9,7 @@
     "directory": "ardp"
   },
   "main": "src/index.js",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "private": true,
   "scripts": {
     "test": "node --test",

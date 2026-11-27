@@ -50,6 +50,14 @@ desktop, and that's the whole window:
 
 ## Install
 
+Get the installer from the [latest release](https://github.com/mf9z/ARP/releases/latest):
+the `.exe` for Windows, the `-arm64.dmg` for a Mac with Apple silicon, the
+other `.dmg` for an Intel Mac. They are not signed with a paid certificate, so
+Windows SmartScreen and macOS both ask before the first launch
+([on a Mac](#on-a-mac)).
+
+Or run it from source:
+
 ```sh
 git clone https://github.com/mf9z/ARP && cd ARP
 npm install
@@ -123,6 +131,43 @@ desktop, or what your system shows in its own file dialogs.
 
 More in [ardp](ardp) and [arp-vm](arp-vm).
 
+## The protocol
+
+Remote desktop runs on ARDP, a protocol written for this project and specified
+in full in [ardp/docs/PROTOCOL.md](ardp/docs/PROTOCOL.md): enough for a second
+implementation.
+
+| | |
+|---|---|
+| transport | one TCP connection, port 7389, always inside TLS 1.2 or newer |
+| framing | 4 bytes of length, 1 of type, then JSON or a binary video frame |
+| handshake | four messages; both sides prove the access code with scrypt and HMAC-SHA256, bound to the certificate and to the TLS session |
+| picture | H.264 (VP8 or VP9 as fallbacks) as a video stream, sent only when the screen changes |
+| input | physical keys and 0 to 1 pointer coordinates, one small JSON message each |
+| pacing | the client acknowledges frames; the host skips frames and lowers the bitrate before it falls behind |
+| bitrate ceiling | 4.4, 11.2 or 27.4 Mbit/s at 1080p, by quality setting |
+| protocol overhead | 18 bytes a frame; 0.05 ms for an input event and 0.15 ms for a frame on loopback |
+
+Those two timings are the protocol's own cost and nothing more. Latency from a
+key press to the picture, through capture, encoder, network and decoder, has
+not been measured yet. `node ardp/scripts/bench.js` repeats the measurement.
+
+## Security
+
+Everything is encrypted, on a LAN as well as across the internet: there is no
+plain mode. The access code is the credential. It is never sent; each side
+proves it knows it, and the proof cannot be replayed, relayed by someone in the
+middle, or checked against guesses without paying for scrypt each time. Five
+wrong codes lock an address out, and by default someone at the computer has to
+allow each connection.
+
+What it does not do: there is no relay or NAT traversal, so reaching a computer
+from outside your network means forwarding a port or using a VPN. The first
+connection to a computer trusts its certificate on first use. Anyone who has
+the code and is let in gets the whole desktop. Nobody outside the project has
+audited it. The full list is in the
+[security model](ardp/docs/PROTOCOL.md#security-model).
+
 ## Development
 
 ```sh
@@ -139,3 +184,7 @@ npm run selftest:vm    # the whole app with a stand-in for QEMU, no windows show
 - [ ] secure p2p messaging
 - [ ] secure p2p calling
 - [ ] ai mcp to connect your agents for computer use
+
+## License
+
+[MIT](LICENSE)

@@ -1,0 +1,71 @@
+name: release
+
+# pushing a tag like v0.1.0 builds the installers and publishes them as a release.
+# the release stays a draft until every installer is attached
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  draft:
+    name: draft
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: the tag has to be the version in package.json
+        run: |
+          version="$(node -p "require('./arp-launcher/package.json').version")"
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match version $version in arp-launcher/package.json"
+            exit 1
+          fi
+      - name: draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1 ||
+            gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "ARP ${GITHUB_REF_NAME#v}" --generate-notes
+
+  build:
+    name: ${{ matrix.os }}
+    needs: draft
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm test
+      - run: npm run dist
+      - name: attach
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          shopt -s nullglob
+          files=(arp-launcher/dist/*.exe arp-launcher/dist/*.dmg)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::no installer was built"
+            exit 1
+          fi
+          ls -l "${files[@]}"
+          gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
+
+  publish:
+    name: publish
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false --latest

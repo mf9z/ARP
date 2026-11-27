@@ -75,6 +75,33 @@ proof = HMAC-SHA256(key, "ardp1/" + role + clientNonce + hostNonce + fingerprint
 - The host accepts at most 16 connections, 4 from one address.
 - Until a peer has proved itself it gets little room: a host reads messages of at most 4 KiB before authentication and 4 MiB after; a client reads at most 256 KiB before it has verified the host and 32 MiB after.
 
+## Security model
+
+ARDP is meant to be reachable over a network you do not trust. Every byte after the TCP handshake is inside TLS, on a LAN as much as across the internet; there is no unencrypted mode. The host listens on every interface, on the port above, only while hosting is switched on. Reaching it from outside a LAN is a port forward or a VPN: the protocol has no relay, no rendezvous server and no NAT traversal, and nothing in it talks to a third party.
+
+**What an attacker gets.**
+
+| Attacker | Outcome |
+| --- | --- |
+| Reads the traffic | Nothing. Picture, input and clipboard are TLS application data. The handshake messages are too, so a recording gives no offline guess at the code without also breaking TLS. |
+| Sits in the middle with a certificate of its own | The client's proof covers the certificate it saw, so it does not verify at the host. The attacker learns one HMAC it cannot check a guess against without paying scrypt per guess, and gets no session. A client that has connected to this host before also sees that the fingerprint changed and asks its user before sending anything. |
+| Sits in the middle with a stolen copy of the host's key | The proof also covers keying material exported from the one TLS session it was made for, so it cannot be relayed into another. |
+| Guesses codes at the host | One scrypt and one round trip per guess, 5 guesses per address before a lockout that doubles from 30 seconds to 10 minutes, at most 16 connections at a time. A generated code is 12 characters from an alphabet of 31, about 59 bits. |
+| Runs a fake host | It has to prove the code back before the client believes anything it says (`host_untrusted`). It can only ever send picture: no message lets a host read from or steer a client. |
+| Sends malformed or oversized messages | Lengths are capped before authentication (4 KiB at the host, 256 KiB at the client) and after it. A message for the wrong role or out of order ends the connection. |
+
+**What the code is.** The access code is the whole credential: whoever has it and can reach the port can ask for a session. It is a shared secret, not a per-user account, and replacing it disconnects everyone who used the old one. A client certificate identifies a computer the host has seen before, so that the host's user is not asked again; it is an addition to the code, never a substitute.
+
+**What is not protected.**
+
+- The first connection to a host is trust on first use. The fingerprint is not checked against anything yet; what makes that connection safe is the code proof, which is exactly as strong as the code. A short code somebody chose by hand weakens everything in this section.
+- There is no forward secrecy beyond what TLS gives, and no end-to-end layer above TLS: the two ends are the only parties, so there is nothing in between for one to protect against.
+- A computer that has the code and is let in sees the screen and, unless the host only allows watching, has the pointer and keyboard of whoever is logged in. The protocol has no finer permission than view or control.
+- Denial of service: someone who can reach the port can occupy connection slots (16 in all, 4 per address) and get an address locked out by guessing from it.
+- Anything already on either computer. Malware on the host can read the code from the running app; on the client it can watch the session.
+
+The implementation has had no outside audit.
+
 ## Opening a source
 
 After WELCOME the client sends one OPEN. `source` picks an entry from `sources` (the first if absent); `display` picks one of its displays (the primary if absent). `codecs` lists the families the client can decode, any of `h264`, `vp8`, `vp9`. `quality` is `low`, `balanced` or `high`.
@@ -92,6 +119,13 @@ A source serves one session at a time. A newer session takes over; the older one
 ## Video
 
 `VIDEO_CONFIG.codec` is a WebCodecs codec string (for example `avc1.64002a`, `vp8`). H.264 is sent as Annex B with parameter sets in every key frame, so no `description` is needed. A new VIDEO_CONFIG may arrive at any time; the frame after it is a key frame.
+
+**The protocol carries a video stream, not screen updates.** There are no rectangles, tiles or dirty regions on the wire, as there are in RFB. What changed between two pictures is found by the video encoder's inter-frame prediction, and the client's decoder puts it back; the protocol only moves access units. What the host does on top of that is not send what nobody needs:
+
+- A frame is produced when the screen changes. A still screen sends nothing but PING.
+- After the last change, the host encodes the same picture up to 3 more times, 150 ms apart, so the encoder can spend bits on a picture that has stopped moving and text ends up sharp.
+- A frame that arrives while the encoder is more than 2 frames behind, or while flow control has paused it, is dropped before it is encoded. The newest picture is encoded once there is room. Nothing is queued: a late frame is worth less than the next one.
+- A key frame is sent at the start, after VIDEO_KEY and after a new VIDEO_CONFIG, not on a timer.
 
 `VIDEO_FRAME` payload:
 
@@ -123,6 +157,33 @@ Each INPUT message is one event:
 ## Liveness
 
 Each side sends PING every 4 seconds and answers PING with PONG. A PING payload larger than 64 bytes is ignored. A side that receives nothing for 15 seconds closes the connection.
+
+## Cost
+
+**Bandwidth.** The host sets the encoder's bitrate ceiling from the display's size and the `quality` the client asked for: `width × height × 60 × bpp` bits per second, with `bpp` 0.035, 0.09 and 0.22 for `low`, `balanced` and `high`, never below 1.5 Mbit/s or above 80 Mbit/s. `low` runs at 30 frames a second, the others at 60.
+
+| Display | `low` | `balanced` | `high` |
+| --- | --- | --- | --- |
+| 1280 × 720 | 1.9 Mbit/s | 5.0 Mbit/s | 12.2 Mbit/s |
+| 1920 × 1080 | 4.4 Mbit/s | 11.2 Mbit/s | 27.4 Mbit/s |
+| 2560 × 1440 | 7.7 Mbit/s | 19.9 Mbit/s | 48.7 Mbit/s |
+| 3840 × 2160 | 17.4 Mbit/s | 44.8 Mbit/s | 80 Mbit/s |
+
+These are ceilings the encoder is configured with, not measurements of a session. The encoder runs in variable bitrate mode and no frame is sent for a still screen, so a desktop that is mostly text uses a fraction of them and a full-screen video sits near them. Flow control can take the bitrate down to 0.5 Mbit/s on a link that cannot keep up.
+
+The protocol adds 18 bytes to each frame (5 of framing, 13 of video header), which at 60 frames a second is under 9 kbit/s. A pointer move is 39 bytes and a key 42, before TLS.
+
+**Latency.** What the protocol itself adds, measured with `node ardp/scripts/bench.js`: a real host and client over TLS on loopback, on an Apple M5 Max with Node 26.13, with a stand-in for the screen.
+
+| | median | 99th percentile |
+| --- | --- | --- |
+| Connect and authenticate | 46 ms | 57 ms |
+| of which scrypt, on the client | 42 ms | 44 ms |
+| INPUT, client to host | 0.05 ms | 0.15 ms |
+| VIDEO_FRAME of 23 KiB, host to client, 60 a second | 0.15 ms | 0.32 ms |
+| VIDEO_FRAME of 56 KiB, host to client, 60 a second | 0.22 ms | 0.48 ms |
+
+That is framing, TLS and the two event loops, and nothing else. It leaves out everything that dominates a real session: screen capture, encoding, the network, decoding and the wait for the display's next refresh. End-to-end latency, from a key press to the changed picture on the client's screen, has not been measured yet, and neither has the bitrate of real sessions.
 
 ## Codes
 

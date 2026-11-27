@@ -181,6 +181,7 @@ passes so text ends up sharp. The wire format is in
 
 ```sh
 npm test -w ardp                                # protocol tests
+node ardp/scripts/bench.js                      # what the protocol costs, over loopback
 npx electron ardp/scripts/capture-check.js      # which video encoder this machine picks
 npx electron ardp/scripts/make-icons.js         # rebuild the icons from assets/ardp.svg
 ```

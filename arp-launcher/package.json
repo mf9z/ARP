@@ -10,7 +10,7 @@
     "directory": "arp-launcher"
   },
   "main": "src/main.js",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "private": true,
   "scripts": {
     "start": "electron .",
