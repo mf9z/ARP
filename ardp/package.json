@@ -1,6 +1,6 @@
 {
   "name": "ardp",
-  "version": "0.1.0",
+  "version": "0.11.0",
   "description": "ARDP - Aesthetic Remote Desktop Protocol. The remote desktop part of ARP.",
   "author": "rohann",
   "repository": {

@@ -1,7 +1,7 @@
 {
   "name": "arp-launcher",
   "productName": "ARP",
-  "version": "0.1.0",
+  "version": "0.11.0",
   "description": "ARP - Aesthetic Remote Protocol. The app: remote desktop and virtual machines.",
   "author": "rohann",
   "repository": {
