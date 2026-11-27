@@ -277,7 +277,7 @@ test('a host that asks first lets the client in only on a yes', async (t) => {
   const opened = await yes.open({ viewOnly: true });
   assert.equal(opened.width, 64);
   assert.deepEqual(waiting, ['approval']);
-  assert.deepEqual(asked[0], { address: '127.0.0.1', name: 'test', source: 'fake', kind: 'desktop', sourceName: 'Fake', viewOnly: true });
+  assert.deepEqual(asked[0], { address: '127.0.0.1', identity: '', name: 'test', source: 'fake', kind: 'desktop', sourceName: 'Fake', viewOnly: true });
   yes.close();
 
   answer = false;
@@ -389,4 +389,39 @@ test('a connection cannot be turned around', async (t) => {
   d.channel.send(wire.T.VIDEO_FRAME, Buffer.alloc(64));
   assert.equal((await gone).code, 'bad_protocol');
   assert.deepEqual(source.streams.map((s) => s.inputs.length), [0, 0]);
+});
+
+test('a client is known by its own certificate, and only by one it holds the key to', async (t) => {
+  const { port, host, identity: hostIdentity } = await startHost(t);
+  const asked = [];
+  host.approve = async (who) => (asked.push(who.identity), true);
+
+  const dirs = [0, 1].map(() => fs.mkdtempSync(path.join(os.tmpdir(), 'ardp-test-')));
+  t.after(() => dirs.forEach((dir) => fs.rmSync(dir, { recursive: true, force: true })));
+  const [one, two] = await Promise.all(dirs.map((dir, i) => loadIdentity(dir, `client ${i}`)));
+
+  const open = async (extra) => {
+    const c = client(port, CODE, extra);
+    await c.connect();
+    await c.open({});
+    const seen = host.list().map((s) => s.identity);
+    c.close();
+    await sleep(30);
+    return seen;
+  };
+
+  // the same computer is the same identity every time, and two computers are two
+  assert.deepEqual(await open({ identity: one }), [one.fingerprint]);
+  assert.deepEqual(await open({ identity: one }), [one.fingerprint]);
+  assert.deepEqual(await open({ identity: two }), [two.fingerprint]);
+  // a client that shows nothing is nobody in particular
+  assert.deepEqual(await open({}), ['']);
+  assert.deepEqual(asked, [one.fingerprint, one.fingerprint, two.fingerprint, '']);
+  assert.notEqual(one.fingerprint, two.fingerprint);
+  assert.notEqual(one.fingerprint, hostIdentity.fingerprint);
+
+  // showing someone else's certificate without their key does not get as far as saying hello
+  const thief = client(port, CODE, { identity: { cert: one.cert, key: two.key } });
+  await assert.rejects(thief.connect());
+  assert.equal(host.list().length, 0);
 });

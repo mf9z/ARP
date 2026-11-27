@@ -98,8 +98,10 @@ Every computer runs the same app.
    address and an access code.
 2. On the one you're sitting at, open **Remote desktop**, type both and press
    **Connect**.
-3. Back on the first computer a question pops up: allow or deny. Untick
-   **Ask me before someone connects** to skip it when nobody is there.
+3. Back on the first computer a question pops up: allow or deny. Tick
+   **Make it an Operator** in that question and the computer asking is never
+   asked about again. Untick **Ask me before someone connects** to skip the
+   question for everyone, for when nobody is there.
 
 If the other computer has a virtual machine running you're asked which to
 open, the main PC or the VM. A VM running on your own computer shows up in

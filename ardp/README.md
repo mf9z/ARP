@@ -73,6 +73,21 @@ being connected to shows who is asking and waits for **Allow** or **Deny**. No
 answer in 30 seconds counts as no. Untick it to reach a computer nobody is
 sitting at.
 
+### Operators
+
+An Operator is a computer that was let in once and is not asked about again.
+It connects, reconnects, switches display and takes control without anyone at
+the other end clicking anything. It still needs the access code.
+
+| to | do this on the computer being connected to |
+|----|--------------------------------------------|
+| make one while answering | tick **Make it an Operator** in the allow / deny question |
+| make one that is connected | **This computer**, then **Make operator** next to it, and confirm |
+| take it back | **This computer > Operators > Remove**. It is asked about again from its next connection |
+
+Someone already controlling that computer can press those buttons too, so you
+can make yourself an Operator from where you are sitting.
+
 ### Virtual machines
 
 If the other computer has a virtual machine running you're asked which to
@@ -109,6 +124,11 @@ passes so text ends up sharp. The wire format is in
 - A host's identity is remembered. If it changes you're asked before going on.
 - Five wrong codes lock that address out, for longer each time.
 - Someone at the host gets to allow or deny each connection, unless that is switched off.
+- Every computer connects with a certificate of its own, and an Operator is
+  remembered by that certificate's fingerprint, not by its name or address. It
+  cannot be borrowed without the private key, which is kept in the OS
+  credential store. Making an Operator is confirmed in a system dialog, and
+  the list is capped at 32.
 - Hosting is off until you turn it on. **New** replaces the code and
   disconnects everyone using the old one.
 - Saved codes and the host's private key are encrypted with the OS credential

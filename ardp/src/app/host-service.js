@@ -7,6 +7,7 @@ const { EventEmitter } = require('events');
 const auth = require('../protocol/auth');
 const { ArdpHost } = require('../host/host');
 const { loadIdentity } = require('../host/identity');
+const { Operators } = require('../host/operators');
 const { DesktopSource } = require('./host/desktop-source');
 const { NativeInput } = require('./host/input');
 const permissions = require('./host/permissions');
@@ -39,6 +40,13 @@ class HostService extends EventEmitter {
     this.name = os.hostname().replace(/\.local$/i, '');
     this.info = { name: this.name, platform: process.platform, version };
     this.input = NativeInput.load();
+    this.operators = new Operators(
+      () => this.config.data.host.operators,
+      (list) => {
+        this.config.data.host.operators = list;
+        this.config.save();
+      },
+    );
     this.identity = null;
     this.host = null;
     this.local = null;
@@ -74,7 +82,12 @@ class HostService extends EventEmitter {
     };
     this.host = new ArdpHost({
       ...options,
-      approve: (who, signal) => (this.approve && this.config.data.host.askFirst !== false ? this.approve(who, signal) : true),
+      approve: (who, signal) => {
+        if (!this.approve || this.config.data.host.askFirst === false) return true;
+        // an operator was let in once by someone here, and is not asked about again
+        if (this.operators.has(who.identity)) return true;
+        return this.approve(who, signal);
+      },
     });
     // a second listener on loopback only, for opening this computer's own vms. it has
     // its own secret that never leaves this process, serves vms and nothing else, and
@@ -114,7 +127,8 @@ class HostService extends EventEmitter {
       addresses: localAddresses(),
       fingerprint: this.identity ? this.identity.fingerprint : '',
       error: this.error,
-      sessions: this.host ? this.host.list() : [],
+      sessions: this.host ? this.host.list().map((s) => ({ ...s, operator: this.operators.has(s.identity) })) : [],
+      operators: this.operators.list(),
     };
   }
 
@@ -148,6 +162,17 @@ class HostService extends EventEmitter {
   async newCode() {
     await this._useCode(auth.generateCode(), crypto.randomBytes(16), true);
     if (this.host) this.host.disconnect(undefined, 'kicked');
+    this._changed();
+  }
+
+  makeOperator(identity, name) {
+    this.operators.add(identity, name);
+    this._changed();
+  }
+
+  // takes effect the next time that computer connects; a session it has open stays open
+  removeOperator(tag) {
+    this.operators.remove(tag);
     this._changed();
   }
 

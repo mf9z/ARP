@@ -329,13 +329,42 @@
         const li = document.createElement('li');
         const who = document.createElement('span');
         who.className = 'who';
-        who.textContent = `${s.name || 'Unknown'}${s.address ? ` (${s.address})` : ''} - ${s.control ? 'controlling' : 'watching'}`;
+        who.textContent = `${s.name || 'Unknown'}${s.address ? ` (${s.address})` : ''} - ${s.control ? 'controlling' : 'watching'}${s.operator ? ', operator' : ''}`;
+        li.append(who);
+        // a computer that showed an identity of its own can be let in unasked from now on
+        if (s.known && !s.operator) {
+          const trust = document.createElement('button');
+          trust.type = 'button';
+          trust.className = 'btn small';
+          trust.textContent = 'Make operator';
+          trust.title = 'Let this computer connect from now on without asking here first.';
+          trust.addEventListener('click', async () => renderHost(await api.makeOperator(s.id)));
+          li.append(trust);
+        }
         const end = document.createElement('button');
         end.type = 'button';
         end.className = 'btn small';
         end.textContent = 'Disconnect';
         end.addEventListener('click', () => api.disconnect(s.id));
-        li.append(who, end);
+        li.append(end);
+        return li;
+      }),
+    );
+
+    const operators = host.operators || [];
+    $('host-operators').hidden = operators.length === 0;
+    $('operator-list').replaceChildren(
+      ...operators.map((o) => {
+        const li = document.createElement('li');
+        const name = document.createElement('span');
+        name.textContent = o.name || 'Unnamed computer';
+        const drop = document.createElement('button');
+        drop.type = 'button';
+        drop.className = 'btn small';
+        drop.textContent = 'Remove';
+        drop.title = 'Ask again the next time this computer connects.';
+        drop.addEventListener('click', async () => renderHost(await api.forgetOperator(o.tag)));
+        li.append(name, drop);
         return li;
       }),
     );

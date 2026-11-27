@@ -512,3 +512,25 @@ body.dialog {
   gap: 6px;
   margin-top: 6px;
 }
+
+.operators p {
+  margin: 0 0 4px;
+}
+.operators ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.operators li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+}
+.operators li span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

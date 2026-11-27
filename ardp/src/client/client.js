@@ -10,8 +10,10 @@ const { ArdpError, fromSocketError } = require('../protocol/errors');
 const { T } = wire;
 
 class ArdpClient extends EventEmitter {
-  constructor({ host, port, accessCode, info, trust, timeout = 10000 }) {
+  constructor({ host, port, accessCode, info, trust, identity, timeout = 10000 }) {
     super();
+    // this computer's own key and certificate, shown so the host can know it again
+    this.identity = identity || null;
     this.host = host;
     this.port = port;
     this.accessCode = accessCode;
@@ -172,6 +174,7 @@ class ArdpClient extends EventEmitter {
         minVersion: 'TLSv1.2',
         // self-signed host cert: identity comes from the access code proof instead
         rejectUnauthorized: false,
+        ...(this.identity ? { key: this.identity.key, cert: this.identity.cert } : {}),
       });
       this._socket = sock;
       const timer = setTimeout(() => done(new ArdpError('unreachable', 'The computer did not answer.')), this.timeout);

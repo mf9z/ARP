@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld('ardp', {
   newCode: () => ipcRenderer.invoke('host:new-code'),
   disconnect: (id) => ipcRenderer.send('host:disconnect', id),
   allow: (what) => ipcRenderer.send('host:allow', what),
+  makeOperator: (id) => ipcRenderer.invoke('host:operator', id),
+  forgetOperator: (tag) => ipcRenderer.invoke('host:forget-operator', tag),
 
   openVm: (id) => ipcRenderer.invoke('vm:open', id),
 

@@ -14,6 +14,7 @@ const DEFAULTS = {
     salt: null,
     allowControl: true,
     askFirst: true,
+    operators: [],
   },
   client: {
     recent: [],

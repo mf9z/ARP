@@ -23,6 +23,17 @@ const MAX_CLIPBOARD = 1024 * 1024;
 const FAILURES_BEFORE_LOCK = 5;
 
 const tidyAddress = (address) => String(address || '').replace(/^::ffff:/i, '');
+
+// a client may show a certificate of its own. that it holds the key is proved by tls
+// itself, so the fingerprint is something to know this client by the next time
+function identityOf(socket) {
+  try {
+    const cert = socket.getPeerCertificate(true);
+    return cert && cert.raw ? auth.fingerprintOf(cert.raw) : '';
+  } catch {
+    return '';
+  }
+}
 const b64 = (text, min, max) => {
   if (typeof text !== 'string' || text.length > 512) return null;
   const buf = Buffer.from(text, 'base64');
@@ -55,7 +66,8 @@ class ArdpHost extends EventEmitter {
     if (this.server) return Promise.reject(new Error('already listening'));
     return new Promise((resolve, reject) => {
       const server = tls.createServer(
-        { key: this.identity.key, cert: this.identity.cert, ALPNProtocols: [wire.ALPN], minVersion: 'TLSv1.2', handshakeTimeout: 10000 },
+        // the client's certificate is asked for, not judged: it is self-signed like ours
+        { key: this.identity.key, cert: this.identity.cert, ALPNProtocols: [wire.ALPN], minVersion: 'TLSv1.2', handshakeTimeout: 10000, requestCert: true, rejectUnauthorized: false },
         (socket) => this._accept(socket),
       );
       server.on('tlsClientError', () => {});
@@ -130,6 +142,7 @@ class HostSession {
     this.id = host._nextId++;
     this.address = tidyAddress(socket.remoteAddress);
     this.loopback = isLoopback(this.address);
+    this.clientIdentity = identityOf(socket);
     this.client = { name: '', platform: '', version: '' };
     this.since = Date.now();
     this.state = 'hello';
@@ -152,6 +165,7 @@ class HostSession {
     return {
       id: this.id,
       address: this.address,
+      identity: this.clientIdentity,
       name: this.client.name,
       platform: this.client.platform,
       since: this.since,
@@ -311,7 +325,7 @@ class HostSession {
         this._asking = new AbortController();
         this.channel.sendJson(T.WAIT, { for: 'approval' });
         const allowed = await this.host.approve(
-          { address: this.address, name: this.client.name, source: about.id, kind: about.kind, sourceName: about.name, viewOnly: msg.viewOnly === true },
+          { address: this.address, identity: this.clientIdentity, name: this.client.name, source: about.id, kind: about.kind, sourceName: about.name, viewOnly: msg.viewOnly === true },
           this._asking.signal,
         );
         this._asking = null;

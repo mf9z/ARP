@@ -121,7 +121,13 @@ function main() {
   };
 
   function hostView() {
-    const host = hostService.state();
+    const state = hostService.state();
+    // a window only needs to know whether a computer can be remembered, not what it is known by
+    const host = {
+      ...state,
+      sessions: state.sessions.map(({ identity, ...s }) => ({ ...s, known: !!identity })),
+      operators: state.operators.map(({ identity, ...o }) => o),
+    };
     if (!hiding()) return host;
     return {
       ...host,
@@ -131,8 +137,15 @@ function main() {
       addresses: host.addresses.length ? ['Hidden'] : [],
       fingerprint: 'Hidden',
       sessions: host.sessions.map((s, i) => ({ ...s, name: `Computer ${i + 1}`, address: '' })),
+      operators: host.operators.map((o, i) => ({ ...o, name: `Operator ${i + 1}` })),
     };
   }
+
+  // a name as the other computer gave it, made safe to put in a sentence
+  const plain = (name) =>
+    String(name || '')
+      .replace(/[^\x20-\x7e\u00a0-\u200d\u2010-\u2027\u2030-\u2065\u2070-\uffff]/g, '')
+      .slice(0, 40);
 
   function vmsView() {
     const state = vms.state();
@@ -178,17 +191,19 @@ function main() {
     if (quiet) return true;
     const hide = hiding();
     const what = who.kind === 'vm' ? `the virtual machine "${hide ? scrub(who.sourceName) : who.sourceName}"` : 'this computer';
-    const name = String(who.name || '')
-      .replace(/[^\x20-\x7e\u00a0-\u200d\u2010-\u2027\u2030-\u2065\u2070-\uffff]/g, '')
-      .slice(0, 40);
-    const { response } = await ask(null, {
+    const name = plain(who.name);
+    // only a computer that showed an identity of its own can be known again later
+    const rememberable = !!who.identity;
+    const { response, checkboxChecked } = await ask(null, {
       type: 'question',
       // the name is whatever the caller says it is, so it is shown as a quote after the address
       message: `${hide ? 'Another computer' : `A computer at ${who.address}${name ? ` calling itself "${name}"` : ''}`} wants to ${who.viewOnly ? 'watch' : 'use'} ${what}.`,
       detail: `They already entered the access code. If nobody answers in ${ASK_SECONDS} seconds the answer is no.${hide ? '\n\nPrivate mode is on, so who is asking is not shown.' : ''}`,
       buttons: ['Allow', 'Deny'],
+      ...(rememberable ? { checkboxLabel: 'Make it an Operator: do not ask again when this computer connects', checkboxChecked: false } : {}),
       signal: AbortSignal.any([signal, AbortSignal.timeout(ASK_SECONDS * 1000)]),
     });
+    if (response === 0 && checkboxChecked && rememberable) hostService.makeOperator(who.identity, who.name);
     return response === 0;
   }
 
@@ -376,7 +391,7 @@ function main() {
     }
 
     const dial = async () => {
-      const client = new ArdpClient({ host: target.host, port: target.port, accessCode: code, info: clientInfo(), trust: local ? null : trust });
+      const client = new ArdpClient({ host: target.host, port: target.port, accessCode: code, info: clientInfo(), trust: local ? null : trust, identity: hostService.identity });
       dialing = client;
       try {
         await client.connect();
@@ -556,6 +571,29 @@ function main() {
     });
     listen('host:disconnect', (_e, id) => hostService.disconnect(Number.isInteger(id) ? id : undefined));
     listen('host:allow', (_e, what) => permissions.request(what === 'control' ? 'control' : 'screen'));
+
+    // making a connected computer an operator is a standing invitation, so it is
+    // confirmed here, where a web page cannot click
+    handle('host:operator', async (_e, id) => {
+      const session = hostService.state().sessions.find((s) => s.id === id);
+      if (!session || !session.identity || session.operator) return hostView();
+      if (!quiet) {
+        const name = plain(session.name);
+        const { response } = await ask(windows.rdp, {
+          type: 'warning',
+          message: `Make ${hiding() || !name ? 'this computer' : `"${name}"`} an Operator?`,
+          detail: 'From now on it can connect to this computer without anyone here being asked. It still needs the access code. You can take this back under Operators.',
+          buttons: ['Make Operator', 'Cancel'],
+        });
+        if (response !== 0) return hostView();
+      }
+      hostService.makeOperator(session.identity, session.name);
+      return hostView();
+    });
+    handle('host:forget-operator', (_e, tag) => {
+      hostService.removeOperator(String(tag));
+      return hostView();
+    });
 
     let pickedIso = null;
     const withIso = (spec) => (pickedIso && spec.iso === pickedIso.name ? { ...spec, iso: pickedIso.file } : spec);

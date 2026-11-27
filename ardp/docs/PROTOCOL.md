@@ -7,6 +7,7 @@ ARDP (Aesthetic Remote Desktop Protocol) carries one remote display and its inpu
 - TCP, default port **7389**. The client connects to the host.
 - TLS 1.2 or newer, ALPN `ardp/1`. The host presents a long-lived self-signed certificate (ECDSA P-256). The client does not validate the chain; identity comes from the access-code proof below.
 - The **fingerprint** of the host is the SHA-256 of its DER certificate, written as upper-case hex.
+- The host asks for a client certificate and accepts any, or none. A client should present its own long-lived self-signed certificate; its fingerprint, computed the same way, is the **client identity**. TLS proves the client holds the key. A host may use the identity to recognise a client it has let in before, for example to skip asking its user again. It never replaces the access-code proof, and a client without a certificate must still be served.
 
 ## Framing
 

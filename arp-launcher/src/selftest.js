@@ -375,6 +375,58 @@ exports.runQuiet = async ({ app, hostService, vms, open, sessions }) => {
     expect((await text(home, 'status-host')) === '1 computer connected', `the home window shows it: ${await text(home, 'status-host')}`);
     await closeSession(session);
 
+    // operators: someone here says yes once, and that computer is not asked about again
+    {
+      const asked = [];
+      const ask = hostService.approve;
+      hostService.approve = async (who) => (asked.push(who.identity), true);
+      hostService.config.data.host.askFirst = true;
+      const me = hostService.identity.fingerprint;
+      const makeButton = `document.querySelector('#host-sessions button[title^="Let this computer"]')`;
+      const connectToVm = async () => {
+        await fill(`127.0.0.1:${PORT}/vm:quiet-vm`);
+        await click(rdp, 'connect');
+        await until('a session', () => sessions.size === 1);
+        const opened = [...sessions][0];
+        await until('it to open', () => opened.opened);
+        return opened;
+      };
+
+      session = await connectToVm();
+      expect(asked.length === 1 && asked[0] === me, 'a computer that is not an operator is asked about, and shows who it is');
+      await click(rdp, 'tab-host');
+      await until('the connected computer and its button', () => js(rdp, `!!${makeButton}`));
+      await js(rdp, `${makeButton}.click()`);
+      await until('the operator to be remembered', () => hostService.operators.has(me));
+      await until('the operators list', () => js(rdp, `!document.getElementById('host-operators').hidden && document.querySelectorAll('#operator-list li').length === 1`));
+      const who = await js(rdp, `document.querySelector('#host-sessions .who').textContent`);
+      expect(/, operator$/.test(who) && !(await js(rdp, `!!${makeButton}`)), `a connected computer can be made an operator: ${who.replace(/\(.*\)/, '(…)')}`);
+      await closeSession(session);
+
+      session = await connectToVm();
+      expect(asked.length === 1, 'an operator connects again and nobody is asked');
+      await closeSession(session);
+
+      await js(rdp, `document.querySelector('#operator-list button').click()`);
+      await until('the operator to be forgotten', () => !hostService.operators.has(me));
+      session = await connectToVm();
+      expect(asked.length === 2 && (await js(rdp, `document.getElementById('host-operators').hidden`)), 'once removed it is asked about again');
+      await closeSession(session);
+
+      // a computer that shows no identity of its own is asked about every time and cannot be made one
+      const { ArdpClient } = require('ardp/src/client/client');
+      const stranger = new ArdpClient({ host: '127.0.0.1', port: PORT, accessCode: hostService.code, info: { name: 'stranger', platform: 'test', version: '0' } });
+      await stranger.connect();
+      await stranger.open({ source: 'vm:quiet-vm', codecs: ['vp8', 'h264'], viewOnly: true });
+      await until('the stranger to be listed', () => js(rdp, `document.querySelectorAll('#host-sessions li').length === 1`));
+      expect(asked.length === 3 && asked[2] === '' && !(await js(rdp, `!!${makeButton}`)), 'a computer with no identity of its own cannot be made an operator');
+      stranger.close();
+      await until('the stranger to leave', () => hostService.state().sessions.length === 0);
+
+      hostService.approve = ask;
+      await click(rdp, 'tab-connect');
+    }
+
     // with no vm running there is nothing to ask: straight to the pc
     await vms.stop('quiet-vm', true);
     if (allowed.screen) {
