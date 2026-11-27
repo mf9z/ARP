@@ -219,8 +219,10 @@ class ArdpClient extends EventEmitter {
     const msg = wire.parseJson(payload);
 
     if (type === T.ERROR || type === T.CLOSE) {
-      const code = typeof msg.code === 'string' ? msg.code : typeof msg.reason === 'string' ? msg.reason : 'closed';
-      this._reason = new ArdpError(code, typeof msg.message === 'string' ? msg.message : undefined);
+      const given = typeof msg.code === 'string' ? msg.code : typeof msg.reason === 'string' ? msg.reason : 'closed';
+      // a reason is a short word of ours. anything else from the other computer is not taken at its word
+      const code = /^[a-z_]{1,32}$/.test(given) ? given : 'lost';
+      this._reason = new ArdpError(code, typeof msg.message === 'string' ? msg.message.slice(0, 300) : undefined);
       const waiter = this._waiter;
       this._waiter = null;
       if (waiter) waiter.reject(this._reason);

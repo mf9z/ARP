@@ -9,6 +9,7 @@ const { Channel } = require('../protocol/channel');
 const { ArdpError } = require('../protocol/errors');
 const { FlowControl } = require('./flow');
 const { isLoopback } = require('../common/address');
+const { scrubber } = require('../common/privacy');
 
 const { T } = wire;
 
@@ -23,6 +24,18 @@ const MAX_CLIPBOARD = 1024 * 1024;
 const FAILURES_BEFORE_LOCK = 5;
 
 const tidyAddress = (address) => String(address || '').replace(/^::ffff:/i, '');
+
+// a name the other side gave itself ends up in lists and questions on this screen.
+// nothing in it may change how the line around it reads
+const label = (text, max) =>
+  String(text || '')
+    .replace(/[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '')
+    .trim()
+    .slice(0, max);
+
+// a client is told what failed, not what this computer's folders, user or addresses are called
+const scrub = scrubber();
+const telling = (code, message) => (code === 'internal' ? 'Something went wrong on the other computer.' : scrub(String(message || '')).slice(0, 300));
 
 // a client may show a certificate of its own. that it holds the key is proved by tls
 // itself, so the fingerprint is something to know this client by the next time
@@ -41,9 +54,11 @@ const b64 = (text, min, max) => {
 };
 
 class ArdpHost extends EventEmitter {
-  constructor({ identity, info, credential, sources, approve, lockout = true, local = false }) {
+  constructor({ identity, info, credential, sources, approve, trusted, lockout = true, local = false }) {
     super();
     this.approve = approve || null;
+    // says whether a client is let in without the question, so nobody is told to wait for nothing
+    this.trusted = trusted || null;
     this.lockout = lockout;
     this.local = local;
     this._asking = new Set();
@@ -96,6 +111,15 @@ class ArdpHost extends EventEmitter {
   disconnect(id, reason = 'kicked') {
     for (const session of [...this.connections]) {
       if (id === undefined || session.id === id) session.end(reason);
+    }
+  }
+
+  // everything one computer has open here, whichever address it came from
+  disconnectIdentity(identity, reason = 'kicked') {
+    const wanted = auth.normaliseFingerprint(identity);
+    if (!wanted) return;
+    for (const session of [...this.connections]) {
+      if (auth.normaliseFingerprint(session.clientIdentity) === wanted) session.end(reason);
     }
   }
 
@@ -192,8 +216,12 @@ class HostSession {
           return this._ready(type, payload);
       }
     } catch (err) {
-      this.channel.fail(err.code === 'bad_protocol' ? 'bad_protocol' : 'internal', err.message);
+      this._fail(err.code === 'bad_protocol' ? 'bad_protocol' : 'internal', err.message);
     }
+  }
+
+  _fail(code, message) {
+    this.channel.fail(code, telling(code, message));
   }
 
   _hello(type, payload) {
@@ -208,9 +236,9 @@ class HostSession {
 
     const client = msg.client && typeof msg.client === 'object' ? msg.client : {};
     this.client = {
-      name: String(client.name || '').slice(0, 64),
-      platform: String(client.platform || '').slice(0, 16),
-      version: String(client.version || '').slice(0, 16),
+      name: label(client.name, 64),
+      platform: label(client.platform, 16),
+      version: label(client.version, 16),
     };
 
     const credential = this.host.credential();
@@ -270,7 +298,7 @@ class HostSession {
     switch (type) {
       case T.OPEN:
         this._open(wire.parseJson(payload)).catch((err) => {
-          this.channel.fail(err.code === 'bad_protocol' ? 'bad_protocol' : 'internal', err.message);
+          this._fail(err.code === 'bad_protocol' ? 'bad_protocol' : 'internal', err.message);
         });
         return;
       case T.CLOSE:
@@ -317,17 +345,15 @@ class HostSession {
       if (!source) throw new ArdpError('no_source', 'That computer or virtual machine is not available.');
 
       // someone at this computer gets to say yes or no first
-      if (this.host.approve) {
+      const about = source.describe();
+      const who = { address: this.address, identity: this.clientIdentity, name: this.client.name, source: about.id, kind: about.kind, sourceName: about.name, viewOnly: msg.viewOnly === true };
+      if (this.host.approve && !(this.host.trusted && this.host.trusted(who))) {
         // one question per address at a time, so the screen cannot be flooded with them
         if (this.host._asking.has(this.address)) throw new ArdpError('denied', 'The other computer is already being asked.');
         this.host._asking.add(this.address);
-        const about = source.describe();
         this._asking = new AbortController();
         this.channel.sendJson(T.WAIT, { for: 'approval' });
-        const allowed = await this.host.approve(
-          { address: this.address, identity: this.clientIdentity, name: this.client.name, source: about.id, kind: about.kind, sourceName: about.name, viewOnly: msg.viewOnly === true },
-          this._asking.signal,
-        );
+        const allowed = await this.host.approve(who, this._asking.signal);
         this._asking = null;
         this.host._asking.delete(this.address);
         if (this.channel.closed) return;
@@ -378,7 +404,7 @@ class HostSession {
       this.host.emit('stream', this.summary());
     } catch (err) {
       const code = err instanceof ArdpError ? err.code : 'internal';
-      this.channel.fail(code, err.message);
+      this._fail(code, err.message);
     } finally {
       this._opening = false;
     }

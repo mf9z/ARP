@@ -83,7 +83,7 @@ the other end clicking anything. It still needs the access code.
 |----|--------------------------------------------|
 | make one while answering | tick **Make it an Operator** in the allow / deny question |
 | make one that is connected | **This computer**, then **Make operator** next to it, and confirm |
-| take it back | **This computer > Operators > Remove**. It is asked about again from its next connection |
+| take it back | **This computer > Operators > Remove**. What it has open ends at once, and it is asked about again the next time |
 
 Someone already controlling that computer can press those buttons too, so you
 can make yourself an Operator from where you are sitting.
@@ -145,6 +145,18 @@ passes so text ends up sharp. The wire format is in
 - Each window can only call the parts of the app that belong to it. A window
   showing another computer's picture cannot read the access code or change
   settings.
+- What the other computer says went wrong is never taken at its word: its
+  reason has to be one of ARDP's own, and its text is shown as one short plain
+  line or not at all.
+- A failure on the host is reported without its folder names, account name or
+  addresses. The name a client gives itself is stripped of anything that could
+  change how the line it appears in reads, and the allow / deny question says
+  so when a stranger uses the name of one of your Operators.
+- The built app cannot be started as a plain script runner, debugged from
+  outside or pointed at other code, and it checks its own files before running
+  them. On a Mac it runs with the hardened runtime. Together that stops another
+  program on the computer from borrowing the app's screen recording and
+  accessibility permissions.
 - Strangers get a few kilobytes and 15 seconds; one address cannot take every
   connection slot.
 

@@ -50,7 +50,15 @@ const WINDOWS = {
 protocol.registerSchemesAsPrivileged([{ scheme: 'ardp-ui', privileges: { standard: true, secure: true } }]);
 
 if (selftest) app.setPath('userData', require('./selftest').profileDir());
-if (checking) app.setPath('userData', fs.mkdtempSync(path.join(os.tmpdir(), 'arp-check-')));
+if (checking) {
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'arp-check-'));
+  app.setPath('userData', scratch);
+  process.on('exit', () => {
+    try {
+      fs.rmSync(scratch, { recursive: true, force: true });
+    } catch {}
+  });
+}
 
 if (!selftest && !checking && !app.requestSingleInstanceLock()) {
   app.quit();
@@ -194,11 +202,13 @@ function main() {
     const name = plain(who.name);
     // only a computer that showed an identity of its own can be known again later
     const rememberable = !!who.identity;
+    // operators are never asked about, so a question under an operator's name is someone else
+    const posing = !!name && hostService.operators.list().some((o) => o.name.toLowerCase() === name.toLowerCase());
     const { response, checkboxChecked } = await ask(null, {
       type: 'question',
       // the name is whatever the caller says it is, so it is shown as a quote after the address
       message: `${hide ? 'Another computer' : `A computer at ${who.address}${name ? ` calling itself "${name}"` : ''}`} wants to ${who.viewOnly ? 'watch' : 'use'} ${what}.`,
-      detail: `They already entered the access code. If nobody answers in ${ASK_SECONDS} seconds the answer is no.${hide ? '\n\nPrivate mode is on, so who is asking is not shown.' : ''}`,
+      detail: `They already entered the access code. If nobody answers in ${ASK_SECONDS} seconds the answer is no.${hide ? '\n\nPrivate mode is on, so who is asking is not shown.' : ''}${posing ? `\n\nCareful: one of your Operators is called "${hide ? 'that' : name}" too, but this is a different computer.` : ''}`,
       buttons: ['Allow', 'Deny'],
       ...(rememberable ? { checkboxLabel: 'Make it an Operator: do not ask again when this computer connects', checkboxChecked: false } : {}),
       signal: AbortSignal.any([signal, AbortSignal.timeout(ASK_SECONDS * 1000)]),

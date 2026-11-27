@@ -404,11 +404,15 @@ exports.runQuiet = async ({ app, hostService, vms, open, sessions }) => {
       await closeSession(session);
 
       session = await connectToVm();
-      expect(asked.length === 1, 'an operator connects again and nobody is asked');
-      await closeSession(session);
+      await until('the operator to see the picture', async () => (await frames(session.win)) >= 1);
+      expect(asked.length === 1 && (await js(session.win, `document.getElementById('notice').hidden`)), 'an operator connects again and nobody is asked');
 
+      // taking it back ends what that computer has open, there and then
       await js(rdp, `document.querySelector('#operator-list button').click()`);
       await until('the operator to be forgotten', () => !hostService.operators.has(me));
+      const kicked = await until('its session to be ended', () => js(session.win, `document.getElementById('notice').hidden ? '' : document.getElementById('notice-text').textContent`));
+      expect(kicked === 'The other computer ended the session.', `removing an operator ends its session at once: "${kicked}"`);
+      await closeSession(session);
       session = await connectToVm();
       expect(asked.length === 2 && (await js(rdp, `document.getElementById('host-operators').hidden`)), 'once removed it is asked about again');
       await closeSession(session);

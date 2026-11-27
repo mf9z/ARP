@@ -97,6 +97,11 @@
   }
 
   function present(frame) {
+    // a picture that was still being decoded when the session ended must not bring it back to life
+    if (ended) {
+      frame.close();
+      return;
+    }
     const seq = pending.get(frame.timestamp);
     pending.delete(frame.timestamp);
     if (canvas.width !== frame.displayWidth || canvas.height !== frame.displayHeight) {
@@ -277,7 +282,7 @@
 
   function renderActions() {
     for (const old of menu.querySelectorAll('.action-item')) old.remove();
-    const names = opened && Array.isArray(opened.actions) ? opened.actions.filter((n) => ACTIONS[n]) : [];
+    const names = opened && Array.isArray(opened.actions) ? opened.actions.filter((n) => Object.hasOwn(ACTIONS, n)) : [];
     const items = names.map((name) => {
       const li = document.createElement('li');
       li.className = 'action-item';

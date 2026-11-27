@@ -25,11 +25,20 @@ const MESSAGES = {
 
 const KEEP_REMOTE_TEXT = new Set(['rate_limited', 'capture_failed', 'internal']);
 
+// the other computer's own words, when they are shown at all: one short plain line
+const clean = (text) =>
+  String(text)
+    .replace(/[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 300);
+
 function describe(error, host = 'The computer') {
-  const code = (error && error.code) || 'lost';
-  const remote = error && error.message && error.message !== code ? error.message : '';
+  const code = error && typeof error.code === 'string' && error.code ? error.code : 'lost';
+  const remote = error && typeof error.message === 'string' && error.message !== code ? clean(error.message) : '';
   if (KEEP_REMOTE_TEXT.has(code) && remote) return remote;
-  const make = MESSAGES[code];
+  // the code comes from the other computer: only a name of our own may pick a sentence
+  const make = Object.hasOwn(MESSAGES, code) ? MESSAGES[code] : null;
   return make ? make(host) : remote || 'The connection ended unexpectedly.';
 }
 

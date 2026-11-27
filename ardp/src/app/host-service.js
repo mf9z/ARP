@@ -82,12 +82,9 @@ class HostService extends EventEmitter {
     };
     this.host = new ArdpHost({
       ...options,
-      approve: (who, signal) => {
-        if (!this.approve || this.config.data.host.askFirst === false) return true;
-        // an operator was let in once by someone here, and is not asked about again
-        if (this.operators.has(who.identity)) return true;
-        return this.approve(who, signal);
-      },
+      approve: (who, signal) => (this.approve ? this.approve(who, signal) : true),
+      // an operator was let in once by someone here, and is not asked about again
+      trusted: (who) => !this.approve || this.config.data.host.askFirst === false || this.operators.has(who.identity),
     });
     // a second listener on loopback only, for opening this computer's own vms. it has
     // its own secret that never leaves this process, serves vms and nothing else, and
@@ -170,9 +167,11 @@ class HostService extends EventEmitter {
     this._changed();
   }
 
-  // takes effect the next time that computer connects; a session it has open stays open
+  // no longer trusted means no longer here: what that computer has open is ended too
   removeOperator(tag) {
+    const gone = this.operators.list().find((o) => o.tag === tag);
     this.operators.remove(tag);
+    if (gone && this.host) this.host.disconnectIdentity(gone.identity);
     this._changed();
   }
 

@@ -244,7 +244,7 @@
       choice.sources.map((s) => ({
         id: s.id,
         name: s.kind === 'vm' ? s.name : `${s.name} (the main PC)`,
-        state: s.kind === 'vm' ? `virtual machine, ${VM_STATE[s.state] || s.state}` : '',
+        state: s.kind === 'vm' ? `virtual machine, ${Object.hasOwn(VM_STATE, s.state) ? VM_STATE[s.state] : 'unknown'}` : '',
       })),
       '',
     );

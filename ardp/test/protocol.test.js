@@ -16,6 +16,8 @@ const { ArdpClient } = require('../src/client/client');
 const { Source, SourceStream } = require('../src/host/source');
 const { FlowControl } = require('../src/host/flow');
 const { loadIdentity } = require('../src/host/identity');
+const { describe } = require('../src/common/messages');
+const { ArdpError } = require('../src/protocol/errors');
 
 const CODE = 'K7QM-2XWP-9RDT';
 const INFO = { name: 'test', platform: 'test', version: '0' };
@@ -424,4 +426,110 @@ test('a client is known by its own certificate, and only by one it holds the key
   const thief = client(port, CODE, { identity: { cert: one.cert, key: two.key } });
   await assert.rejects(thief.connect());
   assert.equal(host.list().length, 0);
+});
+
+test('a host cannot crash or script the client through what it says went wrong', async (t) => {
+  const { port, host } = await startHost(t);
+  for (const code of ['__proto__', 'constructor', 'toString', 'hasOwnProperty', 'x'.repeat(5000), 'Has Spaces', '']) {
+    const c = client(port);
+    await c.connect();
+    await c.open({});
+    const closed = new Promise((resolve) => c.once('close', resolve));
+    const session = [...host.connections][0];
+    session.channel.sendJson(wire.T.ERROR, { code, message: `line one\nline two \u202e${'z'.repeat(5000)}` });
+    session.channel.end();
+    const reason = await closed;
+    assert.match(reason.code, /^[a-z_]{1,32}$/, `a code like ${JSON.stringify(code.slice(0, 20))} is not taken as given`);
+    assert.ok(reason.message.length <= 300);
+    const shown = describe(reason, 'studio-pc');
+    assert.equal(typeof shown, 'string');
+    assert.ok(shown.length <= 300 && !/[\n\u202e]/.test(shown), 'what is shown is one short plain line');
+    await sleep(20);
+  }
+
+  // whatever ends up in a reason, describing it never throws and never returns anything but text
+  for (const code of ['__proto__', 'constructor', 'valueOf', 42, null, undefined, {}]) {
+    assert.equal(typeof describe({ code, message: 'm' }, 'h'), 'string');
+  }
+  assert.equal(describe({ code: 'auth_failed' }), 'The access code is not correct.');
+  assert.equal(describe({ code: 'rate_limited', message: `wait\u0007 ${'9'.repeat(900)}` }).length, 300);
+});
+
+test('the name a client gives itself cannot bend the line it is shown in', async (t) => {
+  const { port, host } = await startHost(t);
+  const c = new ArdpClient({ host: '127.0.0.1', port, accessCode: CODE, timeout: 4000, info: { name: 'lap\u202etop\u0000\n  (192.168.1.1) \u2066ok', platform: 'win\u200f32', version: '1\t.0' } });
+  await c.connect();
+  await c.open({});
+  const [seen] = host.list();
+  assert.equal(seen.name, 'laptop  (192.168.1.1) ok');
+  assert.equal(seen.platform, 'win32');
+  c.close();
+});
+
+test('a failure on the host does not describe the host', async (t) => {
+  const { port, source } = await startHost(t);
+  const tries = [
+    [new Error('ENOENT: no such file C:\\Users\\rohan\\vms\\disk.qcow2 (bound to 192.168.1.9:5911)'), 'internal'],
+    [new ArdpError('capture_failed', 'could not open /Users/rohan/vms/disk.qcow2 on 10.0.0.7'), 'capture_failed'],
+  ];
+  for (const [failure, code] of tries) {
+    source.open = async () => {
+      throw failure;
+    };
+    const c = client(port);
+    await c.connect();
+    const err = await c.open({}).then(
+      () => null,
+      (e) => e,
+    );
+    assert.equal(err.code, code);
+    assert.doesNotMatch(err.message, /rohan|192\.168|10\.0\.0\.7/);
+    assert.ok(err.message.length > 0 && err.message.length <= 300);
+  }
+});
+
+test('everything one computer has open can be ended by its identity', async (t) => {
+  const { port, host } = await startHost(t);
+  const dirs = [0, 1].map(() => fs.mkdtempSync(path.join(os.tmpdir(), 'ardp-test-')));
+  t.after(() => dirs.forEach((dir) => fs.rmSync(dir, { recursive: true, force: true })));
+  const [one, two] = await Promise.all(dirs.map((dir, i) => loadIdentity(dir, `client ${i}`)));
+
+  const a = client(port, CODE, { identity: one });
+  const b = client(port, CODE, { identity: two });
+  const nobody = client(port);
+  for (const c of [a, b, nobody]) await c.connect();
+  const gone = new Promise((resolve) => a.once('close', resolve));
+
+  host.disconnectIdentity('');
+  host.disconnectIdentity(one.fingerprint.toLowerCase());
+  assert.equal((await gone).code, 'kicked');
+  await sleep(50);
+  assert.deepEqual(host.list().map((s) => s.identity).sort(), ['', two.fingerprint].sort());
+  b.close();
+  nobody.close();
+});
+
+test('a client the host already trusts is not asked about, or told to wait', async (t) => {
+  const { port, host } = await startHost(t);
+  let asked = 0;
+  let trust = true;
+  host.approve = async () => ((asked += 1), true);
+  host.trusted = (who) => trust && who.address === '127.0.0.1';
+
+  const open = async () => {
+    const c = client(port);
+    await c.connect();
+    const waiting = [];
+    c.on('waiting', (what) => waiting.push(what));
+    await c.open({});
+    c.close();
+    await sleep(30);
+    return waiting;
+  };
+
+  assert.deepEqual(await open(), []);
+  assert.equal(asked, 0);
+  trust = false;
+  assert.deepEqual(await open(), ['approval']);
+  assert.equal(asked, 1);
 });

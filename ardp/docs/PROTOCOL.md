@@ -128,6 +128,8 @@ Each side sends PING every 4 seconds and answers PING with PONG. A PING payload 
 
 Used in `ERROR.code` and `CLOSE.reason`.
 
+Both ends must treat these as data from a stranger. A receiver accepts a code only if it matches `[a-z_]{1,32}` and otherwise reads it as `lost`; it must not use the code to index anything but its own table of known codes. `message` is optional help text: at most 300 characters are kept, control and direction characters are dropped, and a sender must not put its own paths, account names or addresses in it. For `internal` a host sends a fixed sentence.
+
 | Code | Meaning |
 | --- | --- |
 | `auth_failed` | wrong access code |
