@@ -135,6 +135,7 @@ npm run selftest:vm    # the whole app with a stand-in for QEMU, no windows show
 - [x] remote desktop
 - [x] one launcher for everything
 - [x] virtual machines
-- [ ] macOS (passes the same checks on a Mac as on Windows; not yet used on one day to day)
-- [ ] calling
-- [ ] screen sharing
+- [x] macOS (passes the same checks on a Mac as on Windows; not yet used on one day to day)
+- [ ] secure p2p messaging
+- [ ] secure p2p calling
+- [ ] ai mcp to connect your agents for computer use
