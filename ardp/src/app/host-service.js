@@ -9,6 +9,7 @@ const { ArdpHost } = require('../host/host');
 const { loadIdentity } = require('../host/identity');
 const { DesktopSource } = require('./host/desktop-source');
 const { NativeInput } = require('./host/input');
+const permissions = require('./host/permissions');
 
 const TUNNEL = /mullvad|wireguard|nordlynx|openvpn|proton|vpn|tailscale|zerotier|hamachi|^wgd|^tund|^tapd|^utun/i;
 const VIRTUAL = /vethernet|virtual|vmware|vbox|hyper-v|wsl|docker|loopback|bluetooth|^bridge|^veth|^virbr/i;
@@ -34,7 +35,8 @@ class HostService extends EventEmitter {
     this.extraSources = extraSources || (() => []);
     this.approve = approve || null;
     this.dir = dir;
-    this.name = os.hostname();
+    // a mac calls itself studio.local
+    this.name = os.hostname().replace(/\.local$/i, '');
     this.info = { name: this.name, platform: process.platform, version };
     this.input = NativeInput.load();
     this.identity = null;
@@ -61,7 +63,8 @@ class HostService extends EventEmitter {
     const desktop = new DesktopSource({
       name: this.name,
       input: this.input,
-      allowControl: () => this.config.data.host.allowControl !== false,
+      // without the system's say-so the pointer would not move, so such a session only watches
+      allowControl: () => this.config.data.host.allowControl !== false && permissions.status().control,
     });
     const options = {
       identity: this.identity,
@@ -105,7 +108,8 @@ class HostService extends EventEmitter {
       port: settings.port,
       allowControl: settings.allowControl !== false,
       askFirst: settings.askFirst !== false,
-      canControl: !!this.input,
+      canControl: !!this.input && permissions.status().control,
+      permissions: permissions.status(),
       code: this.code,
       addresses: localAddresses(),
       fingerprint: this.identity ? this.identity.fingerprint : '',

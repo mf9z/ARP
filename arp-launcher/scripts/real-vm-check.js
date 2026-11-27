@@ -2,7 +2,7 @@
 
 // boots a real qemu guest and checks the vm layer against it: screen, keys, shutdown.
 // no window is shown. pictures of the vm's screen are saved as png.
-// run: npx electron arp-launcher/scripts/real-vm-check.js [--iso file.iso] [--out dir] [--type "text"]
+// run: npx electron arp-launcher/scripts/real-vm-check.js [--arch aarch64] [--iso file.iso] [--out dir] [--type "text"]
 
 const fs = require('fs');
 const os = require('os');
@@ -17,6 +17,7 @@ const arg = (name, fallback = '') => {
 const iso = arg('iso');
 const out = arg('out', os.tmpdir());
 const typed = arg('type');
+const arch = arg('arch');
 const settle = Number(arg('settle', iso ? 60 : 8)) * 1000;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -40,12 +41,13 @@ app.whenReady().then(async () => {
   };
   try {
     check(store.available, `qemu found${store.binary ? ` at ${path.dirname(store.binary.system)}` : ''}`);
-    const vm = await store.create({ name: 'Real Check', memory: 1024, cpus: 2, diskGb: 2, iso });
+    const vm = await store.create({ name: 'Real Check', memory: 1024, cpus: 2, diskGb: 2, iso, arch });
+    console.log(`guest: ${vm.config.arch}, one of ${store.archs.join(' and ')}`);
     check(fs.statSync(vm.config.disk).size > 0, 'qemu-img made the disk');
 
     const started = Date.now();
     await vm.start();
-    check(vm.state === 'running', `the vm started in ${Date.now() - started} ms`);
+    check(vm.state === 'running', `the vm started in ${Date.now() - started} ms, running on ${vm.accel}`);
     console.log('status:', JSON.stringify(await vm.qmp.execute('query-status')));
 
     const display = await vm.display();

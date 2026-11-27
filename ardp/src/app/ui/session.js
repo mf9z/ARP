@@ -30,7 +30,10 @@
   window.ardpStats = stats;
 
   body.classList.add('fresh');
-  if (api.platform === 'darwin') $('menu-meta').textContent = 'Send Command key';
+  if (api.platform === 'darwin') {
+    $('menu-meta').textContent = 'Send Command key';
+    menu.querySelector('[data-action="fullscreen"] .keys').textContent = 'Ctrl+Option+Enter';
+  }
 
   async function supportedCodecs() {
     const probes = { h264: 'avc1.64002a', vp8: 'vp8', vp9: 'vp09.00.51.08' };

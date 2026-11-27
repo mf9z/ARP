@@ -3,7 +3,7 @@
 const path = require('path');
 const { EventEmitter } = require('events');
 const { app } = require('electron');
-const { VmStore } = require('arp-vm');
+const { VmStore, HOST } = require('arp-vm');
 const { FrameSource } = require('ardp/src/app/host/frame-source');
 
 const CTRL_ALT_DEL = ['ControlLeft', 'AltLeft', 'Delete'];
@@ -20,7 +20,7 @@ class VmService extends EventEmitter {
   }
 
   state() {
-    return { available: this.store.available, vms: this.store.list().map((vm) => vm.describe()) };
+    return { available: this.store.available, archs: this.store.archs, hostArch: HOST, defaultArch: this.store.defaultArch, vms: this.store.list().map((vm) => vm.describe()) };
   }
 
   sources() {

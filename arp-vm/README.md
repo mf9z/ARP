@@ -13,7 +13,9 @@ manages them.
 
 [QEMU](https://www.qemu.org/download/) on the computer that runs the VMs:
 `qemu-system-x86_64` and `qemu-img`, on the `PATH` or in the usual install
-folder. Set `ARP_QEMU` to point somewhere else. Nothing is needed on the
+folder (Homebrew's, on a Mac). Set `ARP_QEMU` to point somewhere else. With
+`qemu-system-aarch64` and its UEFI firmware next to them, which the usual
+installs include, ARM guests work too. Nothing is needed on the
 computers that only connect.
 
 ## How it works
@@ -31,13 +33,25 @@ computers that only connect.
 5. Shut down presses the guest's power button. If it ignores that for 30
    seconds it is switched off.
 
+## Two kinds of guest
+
+| guest           | machine | starts from | fast on |
+|-----------------|---------|-------------|---------|
+| PC (`x86_64`)   | q35, IDE disk and CD, VGA | BIOS | Intel and AMD computers |
+| ARM (`aarch64`) | virt, virtio disk, USB CD, keyboard and pointer, virtio display | UEFI; what it saves is kept in the VM's folder | Apple silicon Macs |
+
+A guest runs at full speed only on a computer built like it: through WHPX on
+Windows, HVF on a Mac, KVM on Linux. The other kind is emulated, which works
+and is slow. If the fast way refuses to start, as it does inside another VM,
+the guest is started again emulated instead of failing. A new VM is the kind that is fast here unless you say otherwise.
+
 ## Use
 
 ```js
 const { VmStore } = require('arp-vm');
 
 const store = new VmStore('/path/to/vms');
-const vm = await store.create({ name: 'Ubuntu', memory: 4096, cpus: 2, diskGb: 64, iso: '/isos/ubuntu.iso' });
+const vm = await store.create({ name: 'Ubuntu', memory: 4096, cpus: 2, diskGb: 64, iso: '/isos/ubuntu.iso' });   // arch: 'aarch64' or 'x86_64'
 await vm.start();
 
 const display = await vm.display();
@@ -64,17 +78,20 @@ screen is saved as png):
 
 ```sh
 npx electron arp-launcher/scripts/real-vm-check.js --iso some.iso --type root
+npx electron arp-launcher/scripts/real-vm-check.js --arch aarch64 --type ver    # an arm guest, as far as its firmware
 npx electron arp-launcher/scripts/vm-check.js --real
 ```
 
 ## Limits
 
-- Tested on Windows with QEMU 11 and an Alpine Linux guest. Nothing else yet.
+- Tested on Windows with QEMU 11: a PC guest running Alpine Linux, and an ARM
+  guest as far as its firmware's shell. On a Mac an ARM guest has been booted
+  that far too, emulated; HVF, the fast way there, is untried.
 - Without hardware acceleration guests are slow. On Windows that means turning
   on the "Windows Hypervisor Platform" feature; QEMU falls back to plain
   emulation when it is off.
 
-- x86-64 guests only.
+- No TPM, so Windows 11 will not install without its usual workarounds.
 - No sound and no clipboard between the guest and you.
 - A guest can reach network services that listen only on this computer
   (127.0.0.1) through its own gateway address; that is how QEMU's built-in

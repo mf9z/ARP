@@ -5,6 +5,7 @@
   const $ = (id) => document.getElementById(id);
   const body = document.body;
   const STATE = { stopped: 'off', starting: 'starting', running: 'running', stopping: 'shutting down' };
+  const ARCH = { x86_64: 'PC (x86-64)', aarch64: 'ARM64' };
 
   $('min').addEventListener('click', () => api.window('minimize'));
   $('close').addEventListener('click', () => api.window('close'));
@@ -37,6 +38,24 @@
     power.textContent = !vm || vm.state === 'stopped' ? 'Start' : vm.state === 'stopping' ? 'Turn off' : vm.state === 'starting' ? 'Starting' : 'Shut down';
   }
 
+  // a guest built like this computer runs at full speed, the other kind is emulated.
+  // the choice only shows when the qemu here can do both
+  function processors() {
+    const archs = vms.archs || [];
+    const pick = $('vm-arch');
+    const chosen = pick.value;
+    pick.replaceChildren(
+      ...archs.map((arch) => {
+        const option = document.createElement('option');
+        option.value = arch;
+        option.textContent = `${ARCH[arch] || arch} - ${arch === vms.hostArch ? 'full speed on this computer' : 'emulated, much slower'}`;
+        return option;
+      }),
+    );
+    pick.value = archs.includes(chosen) ? chosen : vms.defaultArch;
+    pick.hidden = $('vm-arch-label').hidden = archs.length < 2;
+  }
+
   function render(next) {
     if (!!next.private !== !!vms.private) {
       message('');
@@ -47,9 +66,14 @@
       ? 'Open them here, or from another computer like any desktop.'
       : 'This needs QEMU, which is not installed on this computer.';
     list.fill(
-      vms.vms.map((vm) => ({ id: vm.id, name: vm.name, state: vm.error && vm.state === 'stopped' ? 'could not start' : STATE[vm.state] })),
+      vms.vms.map((vm) => ({
+        id: vm.id,
+        name: vm.name,
+        state: (vm.error && vm.state === 'stopped' ? 'could not start' : STATE[vm.state]) + (vm.arch && vms.hostArch && vm.arch !== vms.hostArch ? ', emulated' : ''),
+      })),
       vms.available ? 'No virtual machines yet. Press New to make one.' : 'Install QEMU from qemu.org, then open ARP again.',
     );
+    processors();
     buttons();
   }
 
@@ -99,6 +123,7 @@
     const result = await call(
       api.create({
         name: $('vm-name').value,
+        arch: $('vm-arch').value,
         memory: Number($('vm-memory').value),
         cpus: Number($('vm-cpus').value),
         diskGb: Number($('vm-disk').value),

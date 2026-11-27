@@ -9,7 +9,7 @@ const path = require('path');
 const { PassThrough } = require('stream');
 const { spawn } = require('child_process');
 
-const { VmStore, Vm, VmDisplay, Qmp, buildArgs } = require('../src');
+const { VmStore, Vm, VmDisplay, Qmp, buildArgs, accelerators, HOST } = require('../src');
 const keys = require('../src/keys');
 const { startFake } = require('../dev/fake');
 
@@ -250,7 +250,7 @@ test('the store keeps vms on disk', async (t) => {
 
   const again = new VmStore(dir, options);
   assert.deepEqual(again.list().map((v) => v.describe()), [
-    { id: 'windows-11', name: 'Windows 11', memory: 4096, cpus: 4, iso: '', state: 'stopped', error: '' },
+    { id: 'windows-11', name: 'Windows 11', arch: HOST, memory: 4096, cpus: 4, iso: '', state: 'stopped', error: '' },
   ]);
 
   await vm.start();
@@ -324,4 +324,93 @@ test('paths in a tampered vm.json are not believed', async (t) => {
   const vm = new VmStore(dir, options).get('mine');
   assert.equal(vm.config.disk, path.join(dir, 'mine', 'disk.qcow2'));
   assert.equal(vm.config.iso, '');
+});
+
+test('an arm guest is started as a different machine', () => {
+  const firmware = { code: '/share/qemu/edk2-aarch64-code.fd', vars: '/share/qemu/edk2-arm-vars.fd' };
+  const vm = { name: 'Arm', arch: 'aarch64', memory: 2048, cpus: 2, disk: '/vms/arm/disk.qcow2', iso: '/isos/a,b.iso', vars: '/vms/arm/efi-vars.fd' };
+  const args = buildArgs(vm, { vnc: 12, firmware, platform: 'darwin', host: 'aarch64' });
+  const after = (flag) => args[args.indexOf(flag) + 1];
+  assert.equal(after('-machine'), 'virt');
+  assert.equal(after('-cpu'), 'max');
+  assert.deepEqual(args.filter((a, i) => args[i - 1] === '-accel'), ['hvf', 'tcg']);
+  assert.ok(args.includes('if=pflash,format=raw,unit=0,readonly=on,file=/share/qemu/edk2-aarch64-code.fd'));
+  assert.ok(args.includes('if=pflash,format=raw,unit=1,file=/vms/arm/efi-vars.fd'));
+  assert.ok(args.includes('virtio-blk-pci,drive=disk,bootindex=1'));
+  assert.ok(args.includes('if=none,id=cd,file=/isos/a,,b.iso,format=raw,media=cdrom,readonly=on'));
+  assert.ok(args.includes('usb-storage,drive=cd,bootindex=2'));
+  // no ps/2 and no vga on that machine: the keyboard, the pointer and the screen are added
+  for (const device of ['qemu-xhci', 'usb-kbd', 'usb-tablet', 'virtio-gpu-pci']) assert.ok(args.includes(device), device);
+  assert.ok(args.indexOf('qemu-xhci') < args.indexOf('usb-storage,drive=cd,bootindex=2'), 'the usb controller comes before what plugs into it');
+  assert.ok(!args.includes('-vga') && !args.includes('-boot'));
+  // the same screen and control channel as any other guest
+  assert.equal(after('-vnc'), '127.0.0.1:12,password=on');
+  assert.equal(after('-mon'), 'chardev=mon,mode=control');
+
+  const plain = buildArgs({ ...vm, vars: '', iso: '' }, { vnc: 1, firmware, platform: 'darwin', host: 'aarch64' });
+  assert.equal(plain[plain.indexOf('-bios') + 1], firmware.code);
+  assert.ok(!plain.some((a) => a.includes('cdrom') || a.includes('pflash')));
+  assert.throws(() => buildArgs(vm, { vnc: 1, firmware: null }), /cannot run ARM/);
+});
+
+test('the fast way is only used for guests built like the computer', () => {
+  assert.deepEqual(accelerators('aarch64', 'darwin', 'aarch64'), ['hvf', 'tcg']);
+  assert.deepEqual(accelerators('x86_64', 'darwin', 'aarch64'), ['tcg']);
+  assert.deepEqual(accelerators('x86_64', 'darwin', 'x86_64'), ['hvf', 'tcg']);
+  assert.deepEqual(accelerators('aarch64', 'darwin', 'x86_64'), ['tcg']);
+  assert.deepEqual(accelerators('x86_64', 'win32', 'x86_64'), ['whpx', 'tcg']);
+  assert.deepEqual(accelerators('aarch64', 'win32', 'aarch64'), ['tcg']);
+  assert.deepEqual(accelerators('x86_64', 'linux', 'x86_64'), ['kvm', 'tcg']);
+  // a pc guest keeps the arguments it always had on windows, and asks for a full processor elsewhere
+  const pc = { name: 'Pc', memory: 1024, cpus: 1, disk: 'd' };
+  assert.ok(!buildArgs(pc, { vnc: 1, platform: 'win32', host: 'x86_64' }).includes('-cpu'));
+  const onMac = buildArgs(pc, { vnc: 1, platform: 'darwin', host: 'aarch64' });
+  assert.equal(onMac[onMac.indexOf('-cpu') + 1], 'max');
+  assert.deepEqual(onMac.filter((a, i) => onMac[i - 1] === '-accel'), ['tcg']);
+});
+
+test('the store makes guests of either kind and remembers which', async (t) => {
+  const dir = tempDir(t);
+  const seen = [];
+  const run = launcher();
+  const options = { binary: null, launcher: (args, arch) => (seen.push(arch), run(args)), makeDisk: async (file) => fs.writeFileSync(file, '') };
+  const store = new VmStore(dir, options);
+  assert.deepEqual(store.archs, ['x86_64', 'aarch64']);
+  assert.equal(store.defaultArch, HOST);
+
+  const arm = await store.create({ name: 'Arm One', arch: 'aarch64' });
+  const pc = await store.create({ name: 'Pc One', arch: 'x86_64' });
+  assert.equal(arm.describe().arch, 'aarch64');
+  assert.equal(pc.describe().arch, 'x86_64');
+  await assert.rejects(store.create({ name: 'Odd', arch: 'riscv64' }), /cannot run that kind/);
+  assert.ok(!fs.existsSync(path.join(dir, 'odd')));
+
+  // a vm.json from before there was a choice is a pc
+  const old = JSON.parse(fs.readFileSync(path.join(dir, 'pc-one', 'vm.json'), 'utf8'));
+  delete old.arch;
+  fs.writeFileSync(path.join(dir, 'pc-one', 'vm.json'), JSON.stringify(old));
+  const again = new VmStore(dir, options);
+  assert.deepEqual(Object.fromEntries(again.list().map((v) => [v.id, v.describe().arch])), { 'arm-one': 'aarch64', 'pc-one': 'x86_64' });
+
+  // each kind is started with its own program
+  await again.get('arm-one').start();
+  assert.deepEqual(seen, ['aarch64']);
+  await again.stopAll({ force: true });
+});
+
+test('a hypervisor that refuses to start is not the end: the vm comes up emulated', async () => {
+  const tried = [];
+  const run = launcher({ FAKE_QEMU_NO_HYPERVISOR: '1' });
+  const vm = new Vm(
+    { id: 'one', name: 'One', arch: HOST, memory: 512, cpus: 1, disk: 'disk.qcow2' },
+    { launcher: (args) => (tried.push(args.filter((a, i) => args[i - 1] === '-accel')), run(args)) },
+  );
+  await vm.start();
+  assert.equal(vm.state, 'running');
+  assert.equal(vm.accel, 'tcg');
+  // where this computer has a hypervisor it was tried first, and then left out
+  const ways = accelerators(HOST);
+  assert.deepEqual(tried, ways.length > 1 ? [ways, ['tcg']] : [['tcg']]);
+  await vm.stop({ force: true });
+  assert.equal(vm.accel, '');
 });

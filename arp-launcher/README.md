@@ -29,7 +29,7 @@ From the repo root:
 ```sh
 npm install
 npm start
-npm run dist           # installer in arp-launcher/dist
+npm run dist           # installer in arp-launcher/dist (a .dmg per kind of Mac, on a Mac)
 ```
 
 ## Development
@@ -37,6 +37,7 @@ npm run dist           # installer in arp-launcher/dist
 ```sh
 npm run selftest:vm    # everything but the picture on your screen, no windows shown
 npm run selftest       # opens real windows and connects this computer to itself
+ARP --check            # a built copy: starts as it would for you, says what works, quits
 npx electron arp-launcher/scripts/vm-check.js    # a vm through encoder, host and client (--real for real QEMU)
 npx electron arp-launcher/scripts/real-vm-check.js --iso some.iso    # boot a real guest, save its screen
 ```

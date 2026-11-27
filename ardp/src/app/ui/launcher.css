@@ -503,3 +503,12 @@ body.dialog {
 .field.masked {
   -webkit-text-security: disc;
 }
+
+.permissions p {
+  margin: 0;
+}
+.permissions .btns {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}

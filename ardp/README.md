@@ -138,8 +138,12 @@ passes so text ends up sharp. The wire format is in
 - Connecting to the same computer starts out watching, because the pointer
   would chase its own picture. Move the window where you want it, then press
   **Take control**.
-- Not tested on macOS yet. The host needs Screen Recording and Accessibility
-  permission there.
+- On a Mac the host needs Screen Recording and Accessibility permission.
+  **This computer** says which one is missing and has a button for each. Until
+  Accessibility is given, sessions to that Mac only watch.
+- While you control another computer from a Mac, `Cmd+Q`, `Cmd+W` and `Cmd+H`
+  go to it. `Cmd+Tab` and `Cmd+Space` stay with macOS.
+- On a Mac it has only been run by the automated checks, not used day to day.
 
 ## Development
 

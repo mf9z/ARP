@@ -1,0 +1,130 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm test
+      # the whole app with a stand-in for qemu. no window is shown
+      - name: app
+        shell: bash
+        run: |
+          set +e
+          npm run selftest:vm 2>&1 | tee selftest.log
+          code=${PIPESTATUS[0]}
+          # what went wrong, or was skipped, shows up on the run's page
+          grep -E "\[selftest\] (FAIL|FAILED|skip|this computer|PASSED|[0-9]+ PROBLEM)" selftest.log | while read -r line; do
+            case "$line" in
+              *FAIL*|*PROBLEM*) echo "::error::$line" ;;
+              *) echo "::notice::$line" ;;
+            esac
+          done
+          exit $code
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: selftest-${{ matrix.os }}
+          path: selftest.log
+
+  mac-app:
+    name: mac app
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: npm ci
+      - name: build
+        shell: bash
+        run: |
+          set +e
+          npm run dist 2>&1 | tee build.log
+          code=${PIPESTATUS[0]}
+          # when it fails, the end of the builder's output shows up on the run's page
+          if [ $code -ne 0 ]; then
+            grep -n -E "⨯|rror|ERR!|failed|not found|denied" build.log | head -n 25 | sed -e "s/%/%25/g" | awk 'BEGIN { printf "::error::" } { printf "%s%%0A", $0 } END { print "" }'
+            tail -n 40 build.log | sed -e "s/%/%25/g" | awk 'BEGIN { printf "::error::" } { printf "%s%%0A", $0 } END { print "" }'
+          fi
+          exit $code
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: mac-build-log
+          path: build.log
+      # the app that was just built has to be signed properly, and has to start
+      - name: start
+        shell: bash
+        run: |
+          set +e
+          app="arp-launcher/dist/mac-arm64/ARP.app"
+          codesign --verify --deep --strict "$app" || { echo "::error::the built app's signature does not check out"; exit 1; }
+          # nothing that is only for testing, and no other system's parts, may be inside
+          if npx asar list "$app/Contents/Resources/app.asar" | grep -E "^/src/selftest.js|^/scripts/|^/README|/node_modules/ardp/test/|/node_modules/arp-vm/(dev|test)/|libnut-(win32|linux)"; then
+            echo "::error::files that do not belong were packed into the app"
+            exit 1
+          fi
+          "$app/Contents/MacOS/ARP" --check > start.log 2>&1 &
+          pid=$!
+          for i in $(seq 1 90); do kill -0 $pid 2>/dev/null || break; sleep 1; done
+          if kill -0 $pid 2>/dev/null; then kill $pid; fi
+          cat start.log
+          if grep -q "^arp .* started on darwin" start.log; then
+            echo "::notice::$(grep '^arp .* started on' start.log)"
+          else
+            tail -n 15 start.log | sed -e "s/%/%25/g" | awk 'BEGIN { printf "::error::the built app did not start%%0A" } { printf "%s%%0A", $0 } END { print "" }'
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ARP-mac
+          path: arp-launcher/dist/*.dmg
+
+  # a real guest in a real qemu on a mac, as far as its firmware. the runner is itself a
+  # vm, so this is the emulated way; the fast one needs a mac of your own
+  mac-vm:
+    name: mac vm
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: brew install qemu
+      - name: guest
+        shell: bash
+        run: |
+          set +e
+          npx electron arp-launcher/scripts/real-vm-check.js --arch aarch64 --settle 40 --type ver --out "$RUNNER_TEMP" 2>&1 | tee vm.log
+          code=${PIPESTATUS[0]}
+          level=notice
+          if [ $code -ne 0 ]; then level=error; fi
+          grep -E "^(ok|FAIL|guest:|failed:|uncaught:|ALL GOOD|PROBLEMS)" vm.log | sed -e "s/%/%25/g" | awk -v level="$level" 'BEGIN { printf "::%s::", level } { printf "%s%%0A", $0 } END { print "" }'
+          if [ $code -ne 0 ]; then tail -n 25 vm.log | sed -e "s/%/%25/g" | awk 'BEGIN { printf "::error::" } { printf "%s%%0A", $0 } END { print "" }'; fi
+          cp "$RUNNER_TEMP"/vm-*.png . 2>/dev/null
+          exit $code
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: mac-vm
+          path: |
+            vm.log
+            vm-*.png

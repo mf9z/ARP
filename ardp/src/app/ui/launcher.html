@@ -138,6 +138,17 @@
           <label class="check indent"><input type="checkbox" id="host-ask" /><span>Ask me before someone connects</span></label>
         </div>
 
+        <div class="message permissions" id="host-permissions" hidden>
+          <svg width="16" height="16"><use href="#ico-warning" /></svg>
+          <div>
+            <p id="host-permissions-text"></p>
+            <p class="btns">
+              <button class="btn small" id="allow-screen" type="button">Allow screen recording</button>
+              <button class="btn small" id="allow-control" type="button">Allow control</button>
+            </p>
+          </div>
+        </div>
+
         <fieldset class="group" id="host-details">
           <legend>To connect to this computer</legend>
           <div class="grid">

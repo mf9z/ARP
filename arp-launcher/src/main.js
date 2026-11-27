@@ -1,12 +1,14 @@
 'use strict';
 
+const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { pathToFileURL } = require('url');
-const { app, BrowserWindow, ipcMain, Menu, Tray, dialog, clipboard, protocol, net, shell, session } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, Tray, dialog, clipboard, protocol, net, shell, session, nativeImage, powerSaveBlocker } = require('electron');
 const product = require('ardp/src/common/product');
 const { parseAddress, formatAddress, isLoopback } = require('ardp/src/common/address');
 const { describe } = require('ardp/src/common/messages');
+const permissions = require('ardp/src/app/host/permissions');
 const { scrubber, deep } = require('ardp/src/common/privacy');
 const { ArdpClient } = require('ardp/src/client/client');
 const { Config } = require('ardp/src/app/config');
@@ -16,11 +18,19 @@ const { Encoder } = require('ardp/src/app/host/encoder');
 const { VmService } = require('./vm-service');
 
 const argv = process.argv.slice(1);
-const startHidden = argv.includes('--hidden');
+// started at sign-in the app stays out of the way. windows passes a flag for that, a mac has to be asked
+let hiddenStart = null;
+const startedHidden = () => {
+  if (hiddenStart === null) hiddenStart = argv.includes('--hidden') || (process.platform === 'darwin' && app.getLoginItemSettings().wasOpenedAtLogin === true);
+  return hiddenStart;
+};
 // --selftest-vm tests the vm path with a stand-in for qemu, without ever showing a window
 // the self-tests exist only when run from source, never in an installed copy
 const quiet = !app.isPackaged && argv.includes('--selftest-vm');
 const selftest = quiet || (!app.isPackaged && argv.includes('--selftest'));
+// --check is for trying a built copy: it starts the way it would for a person, says
+// what works and quits. it keeps to a throwaway profile and shows nothing
+const checking = argv.includes('--check');
 if (quiet) process.env.ARP_FAKE_QEMU = '1';
 
 const ARDP = path.dirname(require.resolve('ardp/package.json'));
@@ -40,8 +50,9 @@ const WINDOWS = {
 protocol.registerSchemesAsPrivileged([{ scheme: 'ardp-ui', privileges: { standard: true, secure: true } }]);
 
 if (selftest) app.setPath('userData', require('./selftest').profileDir());
+if (checking) app.setPath('userData', fs.mkdtempSync(path.join(os.tmpdir(), 'arp-check-')));
 
-if (!selftest && !app.requestSingleInstanceLock()) {
+if (!selftest && !checking && !app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   main();
@@ -67,7 +78,7 @@ function main() {
       .some((a) => a && a.address.toLowerCase() === name);
   };
 
-  const clientInfo = () => ({ name: os.hostname(), platform: process.platform, version: app.getVersion() });
+  const clientInfo = () => ({ name: os.hostname().replace(/\.local$/i, ''), platform: process.platform, version: app.getVersion() });
   const running = () => vms.state().vms.filter((vm) => vm.state === 'running' || vm.state === 'starting');
   const busy = () => config.data.host.enabled || vms.state().vms.some((vm) => vm.state !== 'stopped');
 
@@ -214,7 +225,7 @@ function main() {
     win.ardpReveal = () => {
       if (win.isDestroyed() || win.isVisible() || win.ardpRevealed) return;
       win.ardpRevealed = true;
-      if (!quiet && !(name === 'home' && startHidden && busy())) win.show();
+      if (!quiet && !checking && !(name === 'home' && startedHidden() && busy())) win.show();
     };
     win.once('ready-to-show', () => setTimeout(win.ardpReveal, 1500));
 
@@ -223,6 +234,8 @@ function main() {
     };
     win.on('focus', pushState);
     win.on('blur', pushState);
+    // coming back from system settings, where a permission may just have been given
+    if (name === 'rdp' && process.platform === 'darwin') win.on('focus', () => send('rdp', 'host:state', hostView()));
     win.on('closed', () => {
       if (windows[name] === win) windows[name] = null;
     });
@@ -274,6 +287,18 @@ function main() {
     send('rdp', 'local-vms', rdpState().localVms);
     send('vms', 'vm:state', vmsView());
     refreshTray();
+    stayAwake();
+  }
+
+  // a computer that is being used from elsewhere, or runs a vm, must not doze off under it
+  let awake = null;
+  function stayAwake() {
+    const needed = hostService.state().sessions.some((s) => s.streaming) || running().length > 0;
+    if (needed && awake === null) awake = powerSaveBlocker.start('prevent-app-suspension');
+    else if (!needed && awake !== null) {
+      powerSaveBlocker.stop(awake);
+      awake = null;
+    }
   }
 
   // in the tray while this computer is reachable or runs a vm, so that is never invisible
@@ -284,7 +309,11 @@ function main() {
       return;
     }
     if (!tray) {
-      tray = new Tray(icon(process.platform === 'darwin' ? 16 : 32));
+      const small = process.platform === 'darwin';
+      const image = nativeImage.createFromPath(icon(small ? 16 : 32));
+      // the menu bar is drawn at twice the size on a retina screen
+      if (small) image.addRepresentation({ scaleFactor: 2, buffer: nativeImage.createFromPath(icon(32)).toPNG() });
+      tray = new Tray(image);
       tray.on('click', () => open('home'));
     }
     const host = hostService.state();
@@ -526,6 +555,7 @@ function main() {
       return hostView();
     });
     listen('host:disconnect', (_e, id) => hostService.disconnect(Number.isInteger(id) ? id : undefined));
+    listen('host:allow', (_e, what) => permissions.request(what === 'control' ? 'control' : 'screen'));
 
     let pickedIso = null;
     const withIso = (spec) => (pickedIso && spec.iso === pickedIso.name ? { ...spec, iso: pickedIso.file } : spec);
@@ -582,7 +612,7 @@ function main() {
     handle('app:start-at-login', (_e, on) => {
       config.data.app.startAtLogin = !!on;
       config.save();
-      if (app.isPackaged) app.setLoginItemSettings({ openAtLogin: !!on, args: ['--hidden'] });
+      if (app.isPackaged) app.setLoginItemSettings(process.platform === 'darwin' ? { openAtLogin: !!on } : { openAtLogin: !!on, args: ['--hidden'] });
       return !!on;
     });
   }
@@ -645,5 +675,12 @@ function main() {
     open('home');
 
     if (selftest) require('./selftest')[quiet ? 'runQuiet' : 'run']({ app, hostService, vms, open, sessions });
+    if (checking) {
+      windows.home.webContents.once('did-finish-load', () => {
+        const allowed = permissions.status();
+        console.log(`arp ${app.getVersion()} started on ${process.platform} ${process.arch}: input ${hostService.input ? 'loaded' : 'missing'}, screen recording ${allowed.screen ? 'allowed' : 'not allowed'}, qemu ${vms.state().available ? 'found' : 'not found'}`);
+        app.exit(0);
+      });
+    }
   });
 }

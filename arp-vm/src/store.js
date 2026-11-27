@@ -8,6 +8,7 @@ const qemu = require('./qemu');
 const { Vm } = require('./vm');
 
 const NAME = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,31}$/;
+const VARS = 'efi-vars.fd';
 
 const slug = (name) =>
   name
@@ -50,6 +51,17 @@ class VmStore extends EventEmitter {
     return !!(this.binary || this.launcher);
   }
 
+  // the kinds of guest this computer's qemu can run
+  get archs() {
+    if (!this.binary) return this.launcher ? [...qemu.ARCHS] : [];
+    return qemu.ARCHS.filter((arch) => this.binary.systems && this.binary.systems[arch]);
+  }
+
+  // a new vm is built like this computer when it can be, which is what runs fast
+  get defaultArch() {
+    return this.archs.includes(qemu.HOST) ? qemu.HOST : 'x86_64';
+  }
+
   list() {
     return [...this.vms.values()];
   }
@@ -58,7 +70,7 @@ class VmStore extends EventEmitter {
     return this.vms.get(id) || null;
   }
 
-  async create({ name, memory = 2048, cpus = 2, diskGb = 32, iso = '' }) {
+  async create({ name, memory = 2048, cpus = 2, diskGb = 32, iso = '', arch = '' }) {
     if (!this.available) throw new Error('QEMU is not installed on this computer.');
     name = String(name || '').trim();
     if (!NAME.test(name)) throw new Error('Use up to 32 letters, digits, spaces, dots or dashes for the name.');
@@ -68,12 +80,20 @@ class VmStore extends EventEmitter {
     cpus = within(cpus, 1, 64, 'Processors');
     diskGb = within(diskGb, 1, 4096, 'Disk size');
     iso = installer(iso);
+    arch = String(arch || this.defaultArch);
+    if (!this.archs.includes(arch)) throw new Error('The QEMU on this computer cannot run that kind of virtual machine.');
 
     const home = path.join(this.dir, id);
-    const config = { id, name, memory, cpus, iso, disk: path.join(home, 'disk.qcow2'), created: new Date().toISOString() };
+    const config = { id, name, arch, memory, cpus, iso, disk: path.join(home, 'disk.qcow2'), vars: '', created: new Date().toISOString() };
     fs.mkdirSync(home, { recursive: true });
     try {
       await this.makeDisk(config.disk, diskGb);
+      // an arm guest keeps its firmware settings in a file of its own, started from qemu's blank one
+      const blank = arch === 'aarch64' && this.binary && this.binary.firmware ? this.binary.firmware.vars : '';
+      if (blank) {
+        config.vars = path.join(home, VARS);
+        fs.copyFileSync(blank, config.vars, fs.constants.COPYFILE_FICLONE);
+      }
       this._save(config);
     } catch (err) {
       fs.rmSync(home, { recursive: true, force: true });
@@ -125,10 +145,13 @@ class VmStore extends EventEmitter {
         try {
           iso = installer(saved.iso);
         } catch {}
-        // the disk is always the one in the vm's own folder, whatever the file says
+        // the disk is always the one in the vm's own folder, whatever the file says. so is the firmware's memory
+        const vars = path.join(this.dir, entry.name, VARS);
         this._add({
           id: entry.name,
           name: String(saved.name),
+          arch: saved.arch === 'aarch64' ? 'aarch64' : 'x86_64',
+          vars: fs.existsSync(vars) ? vars : '',
           memory: within(saved.memory, 256, 262144, 'Memory'),
           cpus: within(saved.cpus, 1, 64, 'Processors'),
           iso,

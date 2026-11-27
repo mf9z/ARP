@@ -288,6 +288,12 @@ exports.runQuiet = async ({ app, hostService, vms, open, sessions }) => {
   const hidden = () => require('electron').BrowserWindow.getAllWindows().every((w) => !w.isVisible());
 
   try {
+    // a mac only lets an app record the screen and use the pointer once someone has said so.
+    // where that has not happened, those checks are skipped out loud instead of failing
+    const allowed = require('ardp/src/app/host/permissions').status();
+    const steer = allowed.control && !!hostService.input;
+    log(`this computer: ${process.platform} ${process.arch}, screen recording ${allowed.screen ? 'allowed' : 'not allowed'}, control ${steer ? 'allowed' : 'not allowed'}`);
+
     // the front door
     const home = await loaded(open('home'));
     expect((await text(home, 'product-name')) === 'ARP' && (await text(home, 'product-meaning')) === 'Aesthetic Remote Protocol', 'the home window says ARP and what it stands for');
@@ -299,6 +305,8 @@ exports.runQuiet = async ({ app, hostService, vms, open, sessions }) => {
     expect(await js(manager, `document.getElementById('vm-new').disabled === false`), 'virtual machines are available');
     const made = await js(manager, `window.arp.create({ name: 'Quiet VM', memory: 1024, cpus: 1, diskGb: 4, iso: '' })`);
     expect(made.ok && made.vms.vms.length === 1 && made.vms.vms[0].state === 'stopped', `a vm can be created: ${JSON.stringify(made.vms.vms)}`);
+    const kinds = await js(manager, `[...document.getElementById('vm-arch').options].map((o) => o.value).join(' and ')`);
+    expect(kinds === 'x86_64 and aarch64' && !(await js(manager, `document.getElementById('vm-arch').hidden`)), `a new vm can be a pc or an arm computer: ${kinds}`);
     const again = await js(manager, `window.arp.create({ name: 'Quiet VM' })`);
     expect(!again.ok && /already/.test(again.text), `a second one with the same name is refused: ${again.text}`);
     await until('the vm in the list', () => js(manager, `document.querySelectorAll('#vm-list li[data-id]').length === 1`));
@@ -369,44 +377,53 @@ exports.runQuiet = async ({ app, hostService, vms, open, sessions }) => {
 
     // with no vm running there is nothing to ask: straight to the pc
     await vms.stop('quiet-vm', true);
-    await fill(`127.0.0.1:${PORT}`);
-    await click(rdp, 'connect');
-    await until('the desktop session', () => sessions.size === 1);
-    session = [...sessions][0];
-    await until('the desktop to open', () => session.opened);
-    await until('the desktop picture', async () => (await frames(session.win)) >= 1);
-    expect(session.opened.kind === 'desktop' && (await js(rdp, `document.getElementById('chooser').hidden`)), 'with no vm running it goes straight to the pc');
+    if (allowed.screen) {
+      await fill(`127.0.0.1:${PORT}`);
+      await click(rdp, 'connect');
+      await until('the desktop session', () => sessions.size === 1);
+      session = [...sessions][0];
+      await until('the desktop to open', () => session.opened);
+      await until('the desktop picture', async () => (await frames(session.win)) >= 1);
+      expect(session.opened.kind === 'desktop' && (await js(rdp, `document.getElementById('chooser').hidden`)), 'with no vm running it goes straight to the pc');
 
-    // this is the same computer, so it starts out watching, with a button to take control
-    const mode = () => js(session.win, `(() => { const b = document.getElementById('mode'); return b.hidden || b.disabled ? '' : b.textContent.trim(); })()`);
-    await until('the control button', mode);
-    expect(session.opened.control && !session._control() && (await mode()) === 'Take control', `looking at this same computer starts out watching: "${await mode()}"`);
-    await click(session.win, 'mode');
-    await until('control to be taken', () => session._control());
-    expect((await mode()) === 'Controlling' && (await js(session.win, `document.body.classList.contains('controlling')`)), 'one click on the title bar button takes control');
-    await click(session.win, 'mode');
-    await until('control to be given back', () => !session._control());
-    expect((await mode()) === 'Take control', 'and another click goes back to watching');
-    await closeSession(session);
+      if (steer) {
+        // this is the same computer, so it starts out watching, with a button to take control
+        const mode = () => js(session.win, `(() => { const b = document.getElementById('mode'); return b.hidden || b.disabled ? '' : b.textContent.trim(); })()`);
+        await until('the control button', mode);
+        expect(session.opened.control && !session._control() && (await mode()) === 'Take control', `looking at this same computer starts out watching: "${await mode()}"`);
+        await click(session.win, 'mode');
+        await until('control to be taken', () => session._control());
+        expect((await mode()) === 'Controlling' && (await js(session.win, `document.body.classList.contains('controlling')`)), 'one click on the title bar button takes control');
+        await click(session.win, 'mode');
+        await until('control to be given back', () => !session._control());
+        expect((await mode()) === 'Take control', 'and another click goes back to watching');
+        await closeSession(session);
 
-    // asked to only watch, the other side never grants control; the button asks again for it
-    await js(rdp, `document.getElementById('control').click()`);
-    await fill(`127.0.0.1:${PORT}`);
-    await click(rdp, 'connect');
-    await until('the watching session', () => sessions.size === 1);
-    session = [...sessions][0];
-    await until('it to open', () => session.opened);
-    await until('its picture', async () => (await frames(session.win)) >= 1);
-    expect(!session.opened.control && hostService.host.list()[0].control === false, 'with the box unticked the host is told to give no control');
-    await until('the control button', mode);
-    await click(session.win, 'mode');
-    await until('control after asking again', () => session.opened && session.opened.control && session._control(), 20000);
-    expect(hostService.host.list()[0].control === true, 'taking control later asks the host again, and it agrees');
-    await closeSession(session);
-    await js(rdp, `document.getElementById('control').click()`);
+        // asked to only watch, the other side never grants control; the button asks again for it
+        await js(rdp, `document.getElementById('control').click()`);
+        await fill(`127.0.0.1:${PORT}`);
+        await click(rdp, 'connect');
+        await until('the watching session', () => sessions.size === 1);
+        session = [...sessions][0];
+        await until('it to open', () => session.opened);
+        await until('its picture', async () => (await frames(session.win)) >= 1);
+        expect(!session.opened.control && hostService.host.list()[0].control === false, 'with the box unticked the host is told to give no control');
+        await until('the control button', mode);
+        await click(session.win, 'mode');
+        await until('control after asking again', () => session.opened && session.opened.control && session._control(), 20000);
+        expect(hostService.host.list()[0].control === true, 'taking control later asks the host again, and it agrees');
+        await closeSession(session);
+        await js(rdp, `document.getElementById('control').click()`);
+      } else {
+        log('skip  taking control: this computer does not let ARP use its pointer and keyboard');
+        await closeSession(session);
+      }
+    } else {
+      log('skip  everything that looks at this desktop: this computer does not let ARP record its screen');
+    }
 
     // private mode: once it is on, no window may hold an address, this computer's name or a code
-    {
+    if (allowed.screen) {
       const { BrowserWindow } = require('electron');
       const os = require('os');
       const here = `127.0.0.1:${PORT}`;

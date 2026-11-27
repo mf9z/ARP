@@ -98,10 +98,12 @@ class Session extends EventEmitter {
     ipc.on('session:control', (_e, on) => {
       if (on !== true) {
         this.viewOnly = true;
+        this._keys();
         return;
       }
       this.viewOnly = false;
       this._asked = true;
+      this._keys();
       // the host was told this session only watches: ask again, this time for control
       if (this.opened && !this.opened.control && this.options.viewOnly) {
         this.options.viewOnly = false;
@@ -290,6 +292,7 @@ class Session extends EventEmitter {
       primary: d.primary === true,
     }));
     this.win.setTitle(this.title());
+    this._keys();
     this.send('session:opened', {
       title: this.title(),
       kind: opened.kind === 'vm' ? 'vm' : 'desktop',
@@ -345,6 +348,12 @@ class Session extends EventEmitter {
   // controlling needs both: the host allows it and the person here has not chosen view only
   _control() {
     return !!this.opened && this.opened.control && !this.viewOnly;
+  }
+
+  // while controlling, the app's own menu shortcuts stand down. on a mac that is what
+  // lets cmd+q, cmd+w and cmd+h reach the other computer instead of acting here
+  _keys() {
+    if (!this.win.isDestroyed()) this.win.webContents.setIgnoreMenuShortcuts(this._control());
   }
 
   _pushState() {

@@ -12,6 +12,12 @@ if (process.env.FAKE_QEMU_FAIL) {
   process.exit(1);
 }
 
+// a computer whose hypervisor will not start, the way it is inside another vm
+if (process.env.FAKE_QEMU_NO_HYPERVISOR && args.some((a, i) => args[i - 1] === '-accel' && a !== 'tcg')) {
+  console.error('qemu-system: failed to initialize the hypervisor: HV_UNSUPPORTED');
+  process.exit(1);
+}
+
 const display = Number(/:(\d+)/.exec(value('-vnc'))[1]);
 
 startFake({

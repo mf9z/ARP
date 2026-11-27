@@ -282,6 +282,15 @@
     $('host-control').checked = host.allowControl && host.canControl;
     $('host-control').disabled = !host.canControl;
     $('host-ask').checked = host.askFirst;
+
+    // macos has to be told twice: once for the picture, once for the pointer and keys
+    const allowed = host.permissions || {};
+    $('host-permissions').hidden = !allowed.asked || (allowed.screen && allowed.control);
+    $('allow-screen').hidden = !!allowed.screen;
+    $('allow-control').hidden = !!allowed.control;
+    $('host-permissions-text').textContent = !allowed.screen
+      ? 'macOS has not let ARP record this screen yet, so another computer would see nothing. ARP has to be reopened after you allow it.'
+      : 'macOS has not let ARP use the pointer and keyboard yet, so another computer can only watch.';
     $('host-name').textContent = host.name;
     $('host-address').textContent = !host.addresses[0] ? 'No network connection' : host.hidden ? host.addresses[0] : withPort(host.addresses[0], host);
     $('about-fingerprint').textContent = host.fingerprint;
@@ -352,6 +361,8 @@
     if (e.key === 'Enter') e.target.blur();
   });
   $('new-code').addEventListener('click', async () => renderHost(await api.newCode()));
+  $('allow-screen').addEventListener('click', () => api.allow('screen'));
+  $('allow-control').addEventListener('click', () => api.allow('control'));
 
   function copyButton(button, what) {
     button.addEventListener('click', () => {

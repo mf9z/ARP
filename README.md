@@ -56,7 +56,8 @@ npm install
 npm start
 ```
 
-`npm run dist` builds an installer into `arp-launcher/dist`.
+`npm run dist` builds an installer into `arp-launcher/dist`: a setup program on
+Windows, a disk image for each kind of Mac on macOS.
 
 ### Needs
 
@@ -68,6 +69,25 @@ npm start
 `npm install` checks for both and tells you what is missing; `npm run setup`
 checks again. Without QEMU the app still opens, says so on its home window and
 keeps virtual machines off.
+
+### On a Mac
+
+The first time a Mac is used from another computer, macOS asks twice. Both
+questions have a button on **Remote desktop > This computer**:
+
+| macOS setting     | without it |
+|-------------------|------------|
+| Screen Recording  | the other computer sees nothing. ARP has to be reopened after you allow it |
+| Accessibility     | the other computer can watch but not use the pointer or keyboard |
+
+The app is not signed with a paid Apple developer account. The first launch has
+to be allowed by hand (right-click the app and choose **Open**, or
+**System Settings > Privacy & Security > Open Anyway**), and macOS asks for
+the two permissions again after every update.
+
+Virtual machines on an Apple silicon Mac should be **ARM64** ones: those run
+at full speed, a PC (x86-64) one is emulated and much slower. The choice is in
+the **New** form.
 
 ## Use
 
@@ -113,5 +133,6 @@ npm run selftest:vm    # the whole app with a stand-in for QEMU, no windows show
 - [x] remote desktop
 - [x] one launcher for everything
 - [x] virtual machines
+- [ ] macOS (passes the same checks on a Mac as on Windows; not yet used on one day to day)
 - [ ] calling
 - [ ] screen sharing
